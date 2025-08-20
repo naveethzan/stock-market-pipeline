@@ -1,0 +1,39 @@
+# Prometheus configuration for streaming pipeline monitoring
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Alpha Vantage Producer metrics
+  - job_name: 'alpha-vantage-producer'
+    static_configs:
+      - targets: ['alpha-vantage-producer:8080']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # Spark Processor metrics
+  - job_name: 'spark-processor'
+    static_configs:
+      - targets: ['spark-processor:8080']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # Kafka metrics (if JMX exporter is configured)
+  - job_name: 'kafka'
+    static_configs:
+      - targets: ['kafka:9101']
+    scrape_interval: 30s
+
+  # Node exporter for system metrics (optional)
+  # - job_name: 'node'
+  #   static_configs:
+  #     - targets: ['node-exporter:9100']

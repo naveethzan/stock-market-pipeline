@@ -1,0 +1,29 @@
+FROM apache/airflow:2.8.1
+
+# Install system dependencies
+USER root
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    build-essential \
+    docker.io \
+    && rm -rf /var/lib/apt/lists/*
+
+# Switch back to the airflow user
+USER airflow
+
+# Install Python packages
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt && \
+    rm requirements.txt
+
+# Create necessary directories
+RUN mkdir -p /opt/airflow/dags /opt/airflow/src
+
+# Set PYTHONPATH to include the src directory
+ENV PYTHONPATH=/opt/airflow:${PYTHONPATH:-}
+
+# Set the working directory
+WORKDIR /opt/airflow
+
+# Set the default command to run the webserver and scheduler
+CMD ["scheduler"]

@@ -1,0 +1,45 @@
+FROM confluentinc/cp-kafka-connect:7.6.0
+
+# Install connector plugins
+RUN confluent-hub install --no-prompt confluentinc/kafka-connect-s3:10.5.0
+RUN confluent-hub install --no-prompt snowflakeinc/snowflake-kafka-connector:1.9.3
+RUN confluent-hub install --no-prompt confluentinc/kafka-connect-avro-converter:7.6.0
+
+# Create directories for configuration and logs
+RUN mkdir -p /etc/kafka-connect/jars
+RUN mkdir -p /var/log/kafka-connect
+
+# Copy configuration files
+COPY config/kafka-connect/kafka-connect.properties /etc/kafka-connect/kafka-connect.properties
+COPY config/kafka-connect/log4j.properties /etc/kafka-connect/log4j.properties
+
+# Set environment variables
+ENV CONNECT_BOOTSTRAP_SERVERS=kafka:9092
+ENV CONNECT_REST_PORT=8083
+ENV CONNECT_GROUP_ID=streaming-pipeline-connect-cluster
+ENV CONNECT_CONFIG_STORAGE_TOPIC=connect-configs
+ENV CONNECT_OFFSET_STORAGE_TOPIC=connect-offsets
+ENV CONNECT_STATUS_STORAGE_TOPIC=connect-status
+ENV CONNECT_KEY_CONVERTER=org.apache.kafka.connect.json.JsonConverter
+ENV CONNECT_VALUE_CONVERTER=org.apache.kafka.connect.json.JsonConverter
+ENV CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE=false
+ENV CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE=false
+ENV CONNECT_INTERNAL_KEY_CONVERTER=org.apache.kafka.connect.json.JsonConverter
+ENV CONNECT_INTERNAL_VALUE_CONVERTER=org.apache.kafka.connect.json.JsonConverter
+ENV CONNECT_REST_ADVERTISED_HOST_NAME=kafka-connect
+ENV CONNECT_LOG4J_ROOT_LOGLEVEL=INFO
+ENV CONNECT_LOG4J_LOGGERS=org.apache.kafka.connect.runtime.rest=WARN,org.reflections=ERROR
+ENV CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR=1
+ENV CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR=1
+ENV CONNECT_STATUS_STORAGE_REPLICATION_FACTOR=1
+ENV CONNECT_PLUGIN_PATH=/usr/share/java,/usr/share/confluent-hub-components
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=30s \
+  CMD curl -f http://localhost:8083/connectors || exit 1
+
+# Expose port
+EXPOSE 8083
+
+# Start Kafka Connect
+CMD ["/etc/confluent/docker/run"]

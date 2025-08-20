@@ -1,0 +1,88 @@
+version: '3.8'
+
+# Docker Compose configuration for Streaming Pipeline components
+# This file extends the main docker-compose.yaml with streaming-specific services
+
+services:
+  # Alpha Vantage Data Producer
+  streaming-producer:
+    build:
+      context: .
+      dockerfile: Dockerfile.streaming-producer
+    container_name: streaming-producer
+    depends_on:
+      kafka:
+        condition: service_started
+      kafka-topics-init:
+        condition: service_completed_successfully
+    env_file:
+      - ./config/.env
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - PYTHONPATH=/app/src
+      - PRODUCTION_INTERVAL_SECONDS=60
+      - OUTPUT_BASE_PATH=/app/data/output
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./src:/app/src:ro
+      - ./config:/app/config:ro
+    ports:
+      - "8081:8080"  # Health check endpoint
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - streaming-network
+
+  # Spark Structured Streaming Processor
+  streaming-processor:
+    build:
+      context: .
+      dockerfile: Dockerfile.streaming-processor
+    container_name: streaming-processor
+    depends_on:
+      kafka:
+        condition: service_started
+      kafka-topics-init:
+        condition: service_completed_successfully
+      spark-master:
+        condition: service_healthy
+    env_file:
+      - ./config/.env
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SPARK_MASTER=spark://spark-master:7077
+      - SPARK_CHECKPOINT_LOCATION=/app/checkpoints
+      - PYTHONPATH=/app/src
+      - OUTPUT_BASE_PATH=/app/data/output
+    volumes:
+      - ./logs:/app/logs
+      - ./checkpoints:/app/checkpoints
+      - ./data:/app/data
+      - ./src:/app/src:ro
+      - ./config:/app/config:ro
+    ports:
+      - "8082:8080"  # Health check endpoint
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import requests; requests.get('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s  # Longer start period for Spark initialization
+    networks:
+      - streaming-network
+
+networks:
+  streaming-network:
+    driver: bridge
+
+volumes:
+  streaming-logs:
+  streaming-checkpoints:
+  streaming-data:

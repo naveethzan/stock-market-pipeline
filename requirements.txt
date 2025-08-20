@@ -1,0 +1,58 @@
+# =======================================
+# Core Dependencies
+# =======================================
+
+# Core Python
+python-dotenv>=1.0.0
+requests>=2.28.0
+numpy>=1.21.0
+python-json-logger>=2.0.2
+
+# Data Processing
+pandas>=1.5.0
+pyarrow>=6.0.0
+fastparquet>=0.8.0
+
+# AWS
+boto3>=1.28.0
+botocore>=1.31.0
+
+# Kafka
+confluent-kafka==2.3.0
+
+# Data Sources
+yfinance>=0.2.18
+alpha-vantage>=2.3.1
+multitasking==0.0.11  # Pinned for Python 3.8 compatibility
+
+# Snowflake
+snowflake-connector-python>=3.0.0
+snowflake-sqlalchemy>=1.4.0
+snowflake-ingest>=0.1.0
+
+# Airflow (only needed for orchestration, can be installed separately if needed)
+apache-airflow>=2.3.0
+apache-airflow-providers-snowflake>=3.0.0
+apache-airflow-providers-ssh>=2.7.0
+apache-airflow-providers-slack>=5.1.0
+
+# Utilities
+loguru>=0.7.2
+
+# =======================================
+# Development Dependencies (optional)
+# =======================================
+pytest>=7.4.0  # Updated for Python 3.12
+black>=23.11.0  # Updated for Python 3.12
+isort>=5.12.0  # Updated for Python 3.12
+flake8>=6.1.0  # Updated for Python 3.12
+mypy>=1.4.0  # Updated for Python 3.12
+# Note: pyspark-stubs not compatible with Python 3.12 yet
+# Will be added when compatible
+
+# =======================================
+# Notes:
+# - For Airflow, consider using a virtual environment
+# - Some dependencies are only needed for specific components
+# - Version constraints are set to ensure compatibility
+# =======================================

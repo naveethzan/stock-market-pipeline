@@ -1,0 +1,363 @@
+"""
+Configuration management for streaming pipeline.
+Handles API keys, Kafka, and Snowflake connections.
+"""
+import os
+from typing import Dict, List, Optional
+from dataclasses import dataclass
+from pathlib import Path
+
+
+def get_settings():
+    """Get global settings instance"""
+    return Settings()
+
+
+@dataclass
+class AlphaVantageConfig:
+    """Alpha Vantage API configuration."""
+    api_key: str
+    base_url: str = "https://www.alphavantage.co/query"
+    rate_limit_per_minute: int = 5
+    timeout_seconds: int = 30
+    retry_attempts: int = 3
+    retry_backoff_factor: float = 2.0
+
+
+@dataclass
+class KafkaConfig:
+    """Kafka configuration."""
+    bootstrap_servers: List[str]
+    security_protocol: str = "PLAINTEXT"
+    sasl_mechanism: Optional[str] = None
+    sasl_username: Optional[str] = None
+    sasl_password: Optional[str] = None
+    ssl_ca_location: Optional[str] = None
+    ssl_certificate_location: Optional[str] = None
+    ssl_key_location: Optional[str] = None
+    
+    # Producer settings
+    producer_acks: str = "all"
+    producer_retries: int = 3
+    producer_batch_size: int = 16384
+    producer_linger_ms: int = 10
+    producer_compression_type: str = "snappy"
+    
+    # Consumer settings
+    consumer_group_id: str = "streaming-pipeline"
+    consumer_auto_offset_reset: str = "latest"
+    consumer_enable_auto_commit: bool = False
+    consumer_max_poll_records: int = 500
+    
+    # Input Topics
+    stock_quotes_topic: str = "stock-quotes-realtime"
+    stock_intraday_topic: str = "stock-intraday-data"
+    
+    # Output Topics (Processed Data for Medallion Architecture)
+    processed_stock_prices_topic: str = "processed-stock-prices"
+    processed_trading_volume_topic: str = "processed-trading-volume"
+    processed_technical_indicators_topic: str = "processed-technical-indicators"
+    data_quality_alerts_topic: str = "data-quality-alerts"
+
+
+@dataclass
+class SnowflakeConfig:
+    """Snowflake configuration."""
+    account: str
+    user: str
+    password: str
+    warehouse: str
+    database: str
+    schema: str
+    role: Optional[str] = None
+    
+    # Connection settings
+    connection_timeout: int = 60
+    network_timeout: int = 60
+    login_timeout: int = 60
+    
+    # S3 settings for Snowpipe
+    s3_bucket: str = ""
+    s3_prefix: str = "streaming-pipeline"
+    s3_region: str = "us-east-1"
+
+
+@dataclass
+class SparkConfig:
+    """Spark Structured Streaming configuration."""
+    app_name: str = "streaming-pipeline"
+    master: str = "local[*]"
+    
+    # Streaming settings
+    checkpoint_location: str = "/tmp/spark-checkpoints"
+    trigger_processing_time: str = "10 seconds"
+    watermark_delay: str = "1 minute"
+    
+    # Performance settings
+    sql_adaptive_enabled: bool = True
+    sql_adaptive_coalescePartitions_enabled: bool = True
+    serializer: str = "org.apache.spark.serializer.KryoSerializer"
+    
+    # Memory settings
+    driver_memory: str = "2g"
+    executor_memory: str = "2g"
+    executor_cores: int = 2
+    max_result_size: str = "1g"
+
+
+@dataclass
+class MonitoringConfig:
+    """Monitoring and logging configuration."""
+    log_level: str = "INFO"
+    metrics_enabled: bool = True
+    health_check_port: int = 8080
+    
+    # Alerting thresholds
+    error_rate_threshold: float = 0.05
+    latency_threshold_ms: int = 5000
+    throughput_threshold_per_sec: int = 100
+
+
+class ConfigManager:
+    """Central configuration manager for the streaming pipeline."""
+    
+    def __init__(self, config_file: Optional[str] = None):
+        self.config_file = config_file or os.getenv("STREAMING_CONFIG_FILE")
+        self._load_config()
+    
+    def _load_config(self) -> None:
+        """Load configuration from environment variables and config file."""
+        self.alpha_vantage = self._load_alpha_vantage_config()
+        self.kafka = self._load_kafka_config()
+        self.snowflake = self._load_snowflake_config()
+        self.spark = self._load_spark_config()
+        self.monitoring = self._load_monitoring_config()
+        
+        # Stock symbols to track
+        self.stock_symbols = self._get_stock_symbols()
+    
+    def _load_alpha_vantage_config(self) -> AlphaVantageConfig:
+        """Load Alpha Vantage configuration."""
+        api_key = os.getenv("ALPHA_VANTAGE_API_KEY")
+        if not api_key:
+            raise ValueError("ALPHA_VANTAGE_API_KEY environment variable is required")
+        
+        return AlphaVantageConfig(
+            api_key=api_key,
+            base_url=os.getenv("ALPHA_VANTAGE_BASE_URL", "https://www.alphavantage.co/query"),
+            rate_limit_per_minute=int(os.getenv("ALPHA_VANTAGE_RATE_LIMIT", "5")),
+            timeout_seconds=int(os.getenv("ALPHA_VANTAGE_TIMEOUT", "30")),
+            retry_attempts=int(os.getenv("ALPHA_VANTAGE_RETRY_ATTEMPTS", "3")),
+            retry_backoff_factor=float(os.getenv("ALPHA_VANTAGE_BACKOFF_FACTOR", "2.0"))
+        )
+    
+    def _load_kafka_config(self) -> KafkaConfig:
+        """Load Kafka configuration."""
+        bootstrap_servers = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092").split(",")
+        
+        return KafkaConfig(
+            bootstrap_servers=bootstrap_servers,
+            security_protocol=os.getenv("KAFKA_SECURITY_PROTOCOL", "PLAINTEXT"),
+            sasl_mechanism=os.getenv("KAFKA_SASL_MECHANISM"),
+            sasl_username=os.getenv("KAFKA_SASL_USERNAME"),
+            sasl_password=os.getenv("KAFKA_SASL_PASSWORD"),
+            ssl_ca_location=os.getenv("KAFKA_SSL_CA_LOCATION"),
+            ssl_certificate_location=os.getenv("KAFKA_SSL_CERTIFICATE_LOCATION"),
+            ssl_key_location=os.getenv("KAFKA_SSL_KEY_LOCATION"),
+            
+            # Producer settings
+            producer_acks=os.getenv("KAFKA_PRODUCER_ACKS", "all"),
+            producer_retries=int(os.getenv("KAFKA_PRODUCER_RETRIES", "3")),
+            producer_batch_size=int(os.getenv("KAFKA_PRODUCER_BATCH_SIZE", "16384")),
+            producer_linger_ms=int(os.getenv("KAFKA_PRODUCER_LINGER_MS", "10")),
+            producer_compression_type=os.getenv("KAFKA_PRODUCER_COMPRESSION", "snappy"),
+            
+            # Consumer settings
+            consumer_group_id=os.getenv("KAFKA_CONSUMER_GROUP_ID", "streaming-pipeline"),
+            consumer_auto_offset_reset=os.getenv("KAFKA_CONSUMER_AUTO_OFFSET_RESET", "latest"),
+            consumer_enable_auto_commit=os.getenv("KAFKA_CONSUMER_AUTO_COMMIT", "false").lower() == "true",
+            consumer_max_poll_records=int(os.getenv("KAFKA_CONSUMER_MAX_POLL_RECORDS", "500")),
+            
+            # Input Topics
+            stock_quotes_topic=os.getenv("KAFKA_STOCK_QUOTES_TOPIC", "stock-quotes-realtime"),
+            stock_intraday_topic=os.getenv("KAFKA_STOCK_INTRADAY_TOPIC", "stock-intraday-data"),
+            
+            # Output Topics (Processed Data for Medallion Architecture)
+            processed_stock_prices_topic=os.getenv("KAFKA_PROCESSED_STOCK_PRICES_TOPIC", "processed-stock-prices"),
+            processed_trading_volume_topic=os.getenv("KAFKA_PROCESSED_TRADING_VOLUME_TOPIC", "processed-trading-volume"),
+            processed_technical_indicators_topic=os.getenv("KAFKA_PROCESSED_TECHNICAL_INDICATORS_TOPIC", "processed-technical-indicators"),
+            data_quality_alerts_topic=os.getenv("KAFKA_DATA_QUALITY_ALERTS_TOPIC", "data-quality-alerts")
+        )
+    
+    def _load_snowflake_config(self) -> SnowflakeConfig:
+        """Load Snowflake configuration."""
+        required_fields = ["SNOWFLAKE_ACCOUNT", "SNOWFLAKE_USER", "SNOWFLAKE_PASSWORD", 
+                          "SNOWFLAKE_WAREHOUSE", "SNOWFLAKE_DATABASE", "SNOWFLAKE_SCHEMA"]
+        
+        missing_fields = [field for field in required_fields if not os.getenv(field)]
+        if missing_fields:
+            raise ValueError(f"Missing required Snowflake environment variables: {missing_fields}")
+        
+        return SnowflakeConfig(
+            account=os.getenv("SNOWFLAKE_ACCOUNT"),
+            user=os.getenv("SNOWFLAKE_USER"),
+            password=os.getenv("SNOWFLAKE_PASSWORD"),
+            warehouse=os.getenv("SNOWFLAKE_WAREHOUSE"),
+            database=os.getenv("SNOWFLAKE_DATABASE"),
+            schema=os.getenv("SNOWFLAKE_SCHEMA"),
+            role=os.getenv("SNOWFLAKE_ROLE"),
+            
+            connection_timeout=int(os.getenv("SNOWFLAKE_CONNECTION_TIMEOUT", "60")),
+            network_timeout=int(os.getenv("SNOWFLAKE_NETWORK_TIMEOUT", "60")),
+            login_timeout=int(os.getenv("SNOWFLAKE_LOGIN_TIMEOUT", "60")),
+            
+            s3_bucket=os.getenv("S3_BUCKET", ""),
+            s3_prefix=os.getenv("S3_PREFIX", "streaming-pipeline"),
+            s3_region=os.getenv("S3_REGION", "us-east-1")
+        )
+    
+    def _load_spark_config(self) -> SparkConfig:
+        """Load Spark configuration."""
+        return SparkConfig(
+            app_name=os.getenv("SPARK_APP_NAME", "streaming-pipeline"),
+            master=os.getenv("SPARK_MASTER", "local[*]"),
+            
+            checkpoint_location=os.getenv("SPARK_CHECKPOINT_LOCATION", "/tmp/spark-checkpoints"),
+            trigger_processing_time=os.getenv("SPARK_TRIGGER_PROCESSING_TIME", "10 seconds"),
+            watermark_delay=os.getenv("SPARK_WATERMARK_DELAY", "1 minute"),
+            
+            sql_adaptive_enabled=os.getenv("SPARK_SQL_ADAPTIVE_ENABLED", "true").lower() == "true",
+            sql_adaptive_coalescePartitions_enabled=os.getenv("SPARK_SQL_ADAPTIVE_COALESCE", "true").lower() == "true",
+            serializer=os.getenv("SPARK_SERIALIZER", "org.apache.spark.serializer.KryoSerializer"),
+            
+            driver_memory=os.getenv("SPARK_DRIVER_MEMORY", "2g"),
+            executor_memory=os.getenv("SPARK_EXECUTOR_MEMORY", "2g"),
+            executor_cores=int(os.getenv("SPARK_EXECUTOR_CORES", "2")),
+            max_result_size=os.getenv("SPARK_MAX_RESULT_SIZE", "1g")
+        )
+    
+    def _load_monitoring_config(self) -> MonitoringConfig:
+        """Load monitoring configuration."""
+        return MonitoringConfig(
+            log_level=os.getenv("LOG_LEVEL", "INFO"),
+            metrics_enabled=os.getenv("METRICS_ENABLED", "true").lower() == "true",
+            health_check_port=int(os.getenv("HEALTH_CHECK_PORT", "8080")),
+            
+            error_rate_threshold=float(os.getenv("ERROR_RATE_THRESHOLD", "0.05")),
+            latency_threshold_ms=int(os.getenv("LATENCY_THRESHOLD_MS", "5000")),
+            throughput_threshold_per_sec=int(os.getenv("THROUGHPUT_THRESHOLD_PER_SEC", "100"))
+        )
+    
+    def _get_stock_symbols(self) -> List[str]:
+        """Get list of stock symbols to track."""
+        symbols_str = os.getenv("STOCK_SYMBOLS", "AAPL,GOOGL,MSFT,AMZN,TSLA")
+        return [symbol.strip().upper() for symbol in symbols_str.split(",")]
+    
+    def get_kafka_producer_config(self) -> Dict[str, any]:
+        """Get Kafka producer configuration dictionary."""
+        config = {
+            'bootstrap.servers': ','.join(self.kafka.bootstrap_servers),
+            'security.protocol': self.kafka.security_protocol,
+            'acks': self.kafka.producer_acks,
+            'retries': self.kafka.producer_retries,
+            'batch.size': self.kafka.producer_batch_size,
+            'linger.ms': self.kafka.producer_linger_ms,
+            'compression.type': self.kafka.producer_compression_type,
+            'enable.idempotence': True,
+            'max.in.flight.requests.per.connection': 5
+        }
+        
+        # Add SASL configuration if provided
+        if self.kafka.sasl_mechanism:
+            config['sasl.mechanism'] = self.kafka.sasl_mechanism
+            config['sasl.username'] = self.kafka.sasl_username
+            config['sasl.password'] = self.kafka.sasl_password
+        
+        # Add SSL configuration if provided
+        if self.kafka.ssl_ca_location:
+            config['ssl.ca.location'] = self.kafka.ssl_ca_location
+            config['ssl.certificate.location'] = self.kafka.ssl_certificate_location
+            config['ssl.key.location'] = self.kafka.ssl_key_location
+        
+        return config
+    
+    def get_kafka_consumer_config(self) -> Dict[str, any]:
+        """Get Kafka consumer configuration dictionary."""
+        config = {
+            'bootstrap.servers': ','.join(self.kafka.bootstrap_servers),
+            'security.protocol': self.kafka.security_protocol,
+            'group.id': self.kafka.consumer_group_id,
+            'auto.offset.reset': self.kafka.consumer_auto_offset_reset,
+            'enable.auto.commit': self.kafka.consumer_enable_auto_commit,
+            'max.poll.records': self.kafka.consumer_max_poll_records
+        }
+        
+        # Add SASL configuration if provided
+        if self.kafka.sasl_mechanism:
+            config['sasl.mechanism'] = self.kafka.sasl_mechanism
+            config['sasl.username'] = self.kafka.sasl_username
+            config['sasl.password'] = self.kafka.sasl_password
+        
+        # Add SSL configuration if provided
+        if self.kafka.ssl_ca_location:
+            config['ssl.ca.location'] = self.kafka.ssl_ca_location
+            config['ssl.certificate.location'] = self.kafka.ssl_certificate_location
+            config['ssl.key.location'] = self.kafka.ssl_key_location
+        
+        return config
+    
+    def get_snowflake_connection_params(self) -> Dict[str, any]:
+        """Get Snowflake connection parameters."""
+        params = {
+            'account': self.snowflake.account,
+            'user': self.snowflake.user,
+            'password': self.snowflake.password,
+            'warehouse': self.snowflake.warehouse,
+            'database': self.snowflake.database,
+            'schema': self.snowflake.schema,
+            'connection_timeout': self.snowflake.connection_timeout,
+            'network_timeout': self.snowflake.network_timeout,
+            'login_timeout': self.snowflake.login_timeout
+        }
+        
+        if self.snowflake.role:
+            params['role'] = self.snowflake.role
+        
+        return params
+    
+    def get_stock_symbols(self) -> List[str]:
+        """Get list of stock symbols to track."""
+        return self.stock_symbols
+    
+    def get_production_interval(self) -> int:
+        """Get production interval in seconds."""
+        return int(os.getenv("PRODUCTION_INTERVAL_SECONDS", "60"))
+    
+    def get_output_base_path(self) -> str:
+        """Get base path for output files."""
+        return os.getenv("OUTPUT_BASE_PATH", "/tmp/streaming-output")
+
+
+class Settings:
+    """Settings class for Snowflake integration"""
+    
+    def __init__(self):
+        # Snowflake settings
+        self.snowflake_account = os.getenv("SNOWFLAKE_ACCOUNT")
+        self.snowflake_user = os.getenv("SNOWFLAKE_USER")
+        self.snowflake_password = os.getenv("SNOWFLAKE_PASSWORD")
+        self.snowflake_warehouse = os.getenv("SNOWFLAKE_WAREHOUSE", "STOCK_WH")
+        self.snowflake_database = os.getenv("SNOWFLAKE_DATABASE", "STOCK_MARKET")
+        self.snowflake_schema = os.getenv("SNOWFLAKE_SCHEMA", "STREAMING")
+        self.snowflake_role = os.getenv("SNOWFLAKE_ROLE", "SYSADMIN")
+        
+        # AWS/S3 settings
+        self.s3_bucket_name = os.getenv("S3_BUCKET_NAME")
+        self.aws_region = os.getenv("AWS_REGION", "us-east-1")
+        self.aws_access_key_id = os.getenv("AWS_ACCESS_KEY_ID")
+        self.aws_secret_access_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+        self.aws_role_arn = os.getenv("AWS_ROLE_ARN")
+
+
+# Global configuration instance
+config = ConfigManager()

@@ -1,0 +1,450 @@
+version: '3'
+x-airflow-common:
+  &airflow-common
+  build:
+    context: .
+    dockerfile: Dockerfile.airflow
+  env_file:
+    - ./config/.env
+  environment:
+    &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__FERNET_KEY: ''
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__SCHEDULER__MIN_FILE_PROCESS_INTERVAL: 10
+    PYTHONPATH: ${PYTHONPATH:-/opt/airflow}
+  volumes:
+    - ./airflow/dags:/opt/airflow/dags
+    - ./src:/opt/airflow/src
+    - ./airflow/logs:/opt/airflow/logs
+    - ./airflow/plugins:/opt/airflow/plugins
+    - ./airflow/reports:/opt/airflow/reports
+    - /var/run/docker.sock:/var/run/docker.sock 
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+
+services:
+  postgres:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    ports:
+      - 5433:5432
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 5
+    restart: always
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    hostname: zookeeper
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - ./data/zookeeper/data:/var/lib/zookeeper/data
+      - ./data/zookeeper/log:/var/lib/zookeeper/log
+    restart: always
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    hostname: kafka
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - ./data/kafka:/var/lib/kafka/data
+    restart: always
+
+  # Schema Registry for Avro schema management
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.0
+    hostname: schema-registry
+    container_name: schema-registry
+    depends_on:
+      - kafka
+    ports:
+      - "8085:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_TOPIC: _schemas
+      SCHEMA_REGISTRY_DEBUG: "true"
+    volumes:
+      - ./data/schema-registry:/var/lib/schema-registry
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/subjects"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  kafka-topics-init:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: kafka-topics-init
+    depends_on:
+      - kafka
+      - schema-registry
+    entrypoint: ["/bin/bash", "-c"]
+    command: |
+      set -e
+
+      # Wait for Kafka to be ready
+      /usr/bin/cub kafka-ready -b kafka:9092 1 60
+
+      # Wait for Schema Registry to be ready
+      echo "Waiting for Schema Registry..."
+      while ! curl -s http://schema-registry:8081/subjects > /dev/null; do
+        echo "Schema Registry not ready, waiting..."
+        sleep 5
+      done
+      echo "Schema Registry is ready!"
+
+      # Create topics idempotently
+      /usr/bin/kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic stock-data-batch --partitions 1 --replication-factor 1 || true
+      /usr/bin/kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic stock-data-stream --partitions 1 --replication-factor 1 || true
+      
+      # Create streaming pipeline topics
+      /usr/bin/kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic stock-quotes-realtime --partitions 3 --replication-factor 1 || true
+      /usr/bin/kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic stock-intraday-data --partitions 3 --replication-factor 1 || true
+      
+      # Create processed data topics for medallion architecture
+      /usr/bin/kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic processed-stock-prices --partitions 3 --replication-factor 1 || true
+      /usr/bin/kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic processed-trading-volume --partitions 3 --replication-factor 1 || true
+      /usr/bin/kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic processed-technical-indicators --partitions 3 --replication-factor 1 || true
+      /usr/bin/kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic data-quality-alerts --partitions 1 --replication-factor 1 || true
+
+      echo "Streaming pipeline topics created successfully."
+    restart: "no"
+
+  # Schema Registry initialization
+  schema-registry-init:
+    build:
+      context: .
+      dockerfile: Dockerfile.streaming-producer  # Reuse producer image for Python
+    container_name: schema-registry-init
+    depends_on:
+      schema-registry:
+        condition: service_healthy
+    environment:
+      - PYTHONPATH=/app/src
+    volumes:
+      - ./src:/app/src
+      - ./scripts:/app/scripts
+    command: ["python", "/app/scripts/init-schema-registry.py", "--schema-registry-url", "http://schema-registry:8081"]
+    restart: "no"
+
+  spark-master:
+    image: bitnami/spark:3.4.2
+    hostname: spark-master
+    container_name: spark-master
+    env_file:
+      - ./config/.env
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+      # AWS Configuration (from env_file)
+      # Spark Configuration
+      - SPARK_WORKER_CORES=${SPARK_EXECUTOR_CORES:-2}
+      - SPARK_WORKER_MEMORY=${SPARK_DRIVER_MEMORY:-2g}
+      - SPARK_DRIVER_MEMORY=${SPARK_DRIVER_MEMORY:-2g}
+      - SPARK_EXECUTOR_MEMORY=${SPARK_EXECUTOR_MEMORY:-2g}
+      - SPARK_DEFAULT_PARALLELISM=${SPARK_DEFAULT_PARALLELISM:-4}
+      - SPARK_SQL_SHUFFLE_PARTITIONS=${SPARK_SQL_SHUFFLE_PARTITIONS:-8}
+    ports:
+      - "18080:8080"  # Spark UI
+      - "7077:7077"  # Spark Master
+      - "14040:4040"  # Spark Application UI
+    volumes:
+      - ./src/spark/jobs:/opt/spark/jobs
+      - ./data/spark:/opt/spark/data
+      - ~/.aws:/home/spark/.aws:ro
+      - ./config/log4j.properties:/opt/bitnami/spark/conf/log4j2.properties
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  spark-worker:
+    image: bitnami/spark:3.4.2
+    hostname: spark-worker
+    container_name: spark-worker
+    depends_on:
+      - spark-master
+    env_file:
+      - ./config/.env
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=${SPARK_EXECUTOR_MEMORY:-2g}
+      - SPARK_WORKER_CORES=${SPARK_EXECUTOR_CORES:-2}
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      # AWS Configuration (from env_file)
+      # Resource Configuration
+      - SPARK_EXECUTOR_MEMORY=${SPARK_EXECUTOR_MEMORY:-2g}
+      - SPARK_EXECUTOR_CORES=${SPARK_EXECUTOR_CORES:-2}
+    volumes:
+      - ./src/spark/jobs:/opt/spark/jobs
+      - ./data/spark:/opt/spark/data
+      - ~/.aws:/home/spark/.aws:ro
+      - ./config/log4j.properties:/opt/bitnami/spark/conf/log4j2.properties
+    restart: always
+  # In spark-client service
+  spark-client:
+    build:
+      context: .
+      dockerfile: Dockerfile.spark
+    container_name: spark-client
+    depends_on:
+      - spark-master
+    env_file:
+      - ./config/.env
+    environment:
+      - SPARK_MODE=client
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      # AWS credentials for S3 access (from env_file)
+      - PYTHONPATH=/opt/app/src
+    volumes:
+      - ./src/spark/jobs:/opt/spark/jobs
+      - ./src/batch/jobs:/opt/spark/batch_jobs
+      - ./src:/opt/app/src
+      - ./src/airflow/dags/scripts:/opt/airflow/dags/scripts
+      - ./data:/opt/spark/data
+    command: sleep infinity
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - 8081:8080
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    restart: always
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    restart: always
+
+  airflow-init:
+    <<: *airflow-common
+    command: version
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_DB_UPGRADE: 'true'
+      _AIRFLOW_WWW_USER_CREATE: 'true'
+      _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-airflow}
+      _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-airflow}
+
+  # Streaming Pipeline Services
+  
+  # Alpha Vantage Data Producer
+  streaming-producer:
+    build:
+      context: .
+      dockerfile: Dockerfile.streaming-producer
+    container_name: streaming-producer
+    depends_on:
+      kafka:
+        condition: service_started
+      kafka-topics-init:
+        condition: service_completed_successfully
+    env_file:
+      - ./config/.env
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - PYTHONPATH=/app/src
+    volumes:
+      - ./logs:/app/logs
+      - ./src:/app/src
+      - ./config:/app/config
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Spark Structured Streaming Processor
+  streaming-processor:
+    build:
+      context: .
+      dockerfile: Dockerfile.streaming-processor
+    container_name: streaming-processor
+    depends_on:
+      kafka:
+        condition: service_started
+      kafka-topics-init:
+        condition: service_completed_successfully
+      spark-master:
+        condition: service_healthy
+    env_file:
+      - ./config/.env
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SPARK_MASTER=spark://spark-master:7077
+      - SPARK_CHECKPOINT_LOCATION=/app/checkpoints
+      - PYTHONPATH=/app/src
+    volumes:
+      - ./logs:/app/logs
+      - ./checkpoints:/app/checkpoints
+      - ./data:/app/data
+      - ./src:/app/src
+      - ./config:/app/config
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import requests; requests.get('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Kafka Connect for medallion architecture
+  kafka-connect:
+    build:
+      context: .
+      dockerfile: Dockerfile.kafka-connect
+    container_name: kafka-connect
+    depends_on:
+      kafka:
+        condition: service_started
+      schema-registry:
+        condition: service_healthy
+      kafka-topics-init:
+        condition: service_completed_successfully
+    ports:
+      - "8083:8083"
+    env_file:
+      - ./config/.env
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: kafka:9092
+      CONNECT_REST_PORT: 8083
+      CONNECT_GROUP_ID: streaming-pipeline-connect-cluster
+      CONNECT_CONFIG_STORAGE_TOPIC: connect-configs
+      CONNECT_OFFSET_STORAGE_TOPIC: connect-offsets
+      CONNECT_STATUS_STORAGE_TOPIC: connect-status
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
+      CONNECT_LOG4J_ROOT_LOGLEVEL: INFO
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components
+      # AWS credentials for S3 connectors
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+    volumes:
+      - ./config/kafka-connect:/etc/kafka-connect
+      - ./logs/kafka-connect:/var/log/kafka-connect
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/connectors"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Kafka Connect topics initialization
+  kafka-connect-init:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: kafka-connect-init
+    depends_on:
+      kafka-connect:
+        condition: service_healthy
+    volumes:
+      - ./config/kafka-connect:/scripts
+    command: ["/bin/bash", "/scripts/dead-letter-queue-topics.sh"]
+    restart: "no"
+
+  # Kafka UI for monitoring
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    depends_on:
+      - kafka
+      - kafka-connect
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: streaming-pipeline-connect
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://kafka-connect:8083
+    restart: unless-stopped
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+
+  # Grafana for monitoring dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./config/grafana/datasources:/etc/grafana/provisioning/datasources
+    restart: unless-stopped
+
+volumes:
+  postgres-db-volume:
+  prometheus-data:
+  grafana-data:

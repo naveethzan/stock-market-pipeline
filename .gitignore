@@ -1,0 +1,27 @@
+# OS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual envs
+venv/
+
+# Airflow
+airflow/logs/
+
+# Data/runtime
+data/kafka/
+data/zookeeper/
+data/spark/
+data/raw/
+data/processed/
+
+# Notebooks
+*.ipynb
+.ipynb_checkpoints/
+
+# Local secrets
+config/.env
