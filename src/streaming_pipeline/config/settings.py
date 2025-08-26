@@ -22,6 +22,7 @@ class AlphaVantageConfig:
     timeout_seconds: int = 30
     retry_attempts: int = 3
     retry_backoff_factor: float = 2.0
+    mock_mode: bool = False  # Enable mock responses for development/testing
 
 
 @dataclass
@@ -85,37 +86,37 @@ class SnowflakeConfig:
 @dataclass
 class SparkConfig:
     """Spark Structured Streaming configuration."""
-    app_name: str = "streaming-pipeline"
-    master: str = "local[*]"
+    app_name: str
+    master: str
     
     # Streaming settings
-    checkpoint_location: str = "/tmp/spark-checkpoints"
-    trigger_processing_time: str = "10 seconds"
-    watermark_delay: str = "1 minute"
+    checkpoint_location: str
+    trigger_processing_time: str
+    watermark_delay: str
     
     # Performance settings
-    sql_adaptive_enabled: bool = True
-    sql_adaptive_coalescePartitions_enabled: bool = True
-    serializer: str = "org.apache.spark.serializer.KryoSerializer"
+    sql_adaptive_enabled: bool
+    sql_adaptive_coalescePartitions_enabled: bool
+    serializer: str
     
     # Memory settings
-    driver_memory: str = "2g"
-    executor_memory: str = "2g"
-    executor_cores: int = 2
-    max_result_size: str = "1g"
+    driver_memory: str
+    executor_memory: str
+    executor_cores: int
+    max_result_size: str
 
 
 @dataclass
 class MonitoringConfig:
     """Monitoring and logging configuration."""
-    log_level: str = "INFO"
-    metrics_enabled: bool = True
-    health_check_port: int = 8080
+    log_level: str
+    metrics_enabled: bool
+    health_check_port: int
     
     # Alerting thresholds
-    error_rate_threshold: float = 0.05
-    latency_threshold_ms: int = 5000
-    throughput_threshold_per_sec: int = 100
+    error_rate_threshold: float
+    latency_threshold_ms: int
+    throughput_threshold_per_sec: int
 
 
 class ConfigManager:
@@ -138,9 +139,12 @@ class ConfigManager:
     
     def _load_alpha_vantage_config(self) -> AlphaVantageConfig:
         """Load Alpha Vantage configuration."""
-        api_key = os.getenv("ALPHA_VANTAGE_API_KEY")
-        if not api_key:
-            raise ValueError("ALPHA_VANTAGE_API_KEY environment variable is required")
+        api_key = os.getenv("ALPHA_VANTAGE_API_KEY", "mock_api_key")
+        mock_mode = os.getenv("ALPHA_VANTAGE_MOCK_MODE", "false").lower() == "true"
+        
+        # If mock mode is enabled, API key is not required
+        if not mock_mode and not api_key:
+            raise ValueError("ALPHA_VANTAGE_API_KEY environment variable is required (unless ALPHA_VANTAGE_MOCK_MODE=true)")
         
         return AlphaVantageConfig(
             api_key=api_key,
@@ -148,7 +152,8 @@ class ConfigManager:
             rate_limit_per_minute=int(os.getenv("ALPHA_VANTAGE_RATE_LIMIT", "5")),
             timeout_seconds=int(os.getenv("ALPHA_VANTAGE_TIMEOUT", "30")),
             retry_attempts=int(os.getenv("ALPHA_VANTAGE_RETRY_ATTEMPTS", "3")),
-            retry_backoff_factor=float(os.getenv("ALPHA_VANTAGE_BACKOFF_FACTOR", "2.0"))
+            retry_backoff_factor=float(os.getenv("ALPHA_VANTAGE_BACKOFF_FACTOR", "2.0")),
+            mock_mode=mock_mode
         )
     
     def _load_kafka_config(self) -> KafkaConfig:
@@ -191,30 +196,76 @@ class ConfigManager:
     
     def _load_snowflake_config(self) -> SnowflakeConfig:
         """Load Snowflake configuration."""
+        # If Alpha Vantage is in mock mode, make Snowflake config optional
+        mock_mode = os.getenv("ALPHA_VANTAGE_MOCK_MODE", "false").lower() == "true"
+        
         required_fields = ["SNOWFLAKE_ACCOUNT", "SNOWFLAKE_USER", "SNOWFLAKE_PASSWORD", 
                           "SNOWFLAKE_WAREHOUSE", "SNOWFLAKE_DATABASE", "SNOWFLAKE_SCHEMA"]
         
         missing_fields = [field for field in required_fields if not os.getenv(field)]
-        if missing_fields:
-            raise ValueError(f"Missing required Snowflake environment variables: {missing_fields}")
         
-        return SnowflakeConfig(
-            account=os.getenv("SNOWFLAKE_ACCOUNT"),
-            user=os.getenv("SNOWFLAKE_USER"),
-            password=os.getenv("SNOWFLAKE_PASSWORD"),
-            warehouse=os.getenv("SNOWFLAKE_WAREHOUSE"),
-            database=os.getenv("SNOWFLAKE_DATABASE"),
-            schema=os.getenv("SNOWFLAKE_SCHEMA"),
-            role=os.getenv("SNOWFLAKE_ROLE"),
+        # If in mock mode, Snowflake config is optional
+        if mock_mode:
+            # If any fields are missing, use mock defaults
+            if missing_fields:
+                return SnowflakeConfig(
+                    account="mock_account",
+                    user="mock_user",
+                    password="mock_password",
+                    warehouse="mock_warehouse",
+                    database="mock_database",
+                    schema="mock_schema",
+                    role="mock_role",
+                    
+                    connection_timeout=60,
+                    network_timeout=60,
+                    login_timeout=60,
+                    
+                    s3_bucket="mock_bucket",
+                    s3_prefix="mock_prefix",
+                    s3_region="us-east-1"
+                )
+            # If all fields are present, use them even in mock mode
+            else:
+                return SnowflakeConfig(
+                    account=os.getenv("SNOWFLAKE_ACCOUNT"),
+                    user=os.getenv("SNOWFLAKE_USER"),
+                    password=os.getenv("SNOWFLAKE_PASSWORD"),
+                    warehouse=os.getenv("SNOWFLAKE_WAREHOUSE"),
+                    database=os.getenv("SNOWFLAKE_DATABASE"),
+                    schema=os.getenv("SNOWFLAKE_SCHEMA"),
+                    role=os.getenv("SNOWFLAKE_ROLE"),
+                    
+                    connection_timeout=int(os.getenv("SNOWFLAKE_CONNECTION_TIMEOUT", "60")),
+                    network_timeout=int(os.getenv("SNOWFLAKE_NETWORK_TIMEOUT", "60")),
+                    login_timeout=int(os.getenv("SNOWFLAKE_LOGIN_TIMEOUT", "60")),
+                    
+                    s3_bucket=os.getenv("S3_BUCKET", ""),
+                    s3_prefix=os.getenv("S3_PREFIX", "streaming-pipeline"),
+                    s3_region=os.getenv("S3_REGION", "us-east-1")
+                )
+        else:
+            # In production mode, all fields are required
+            if missing_fields:
+                raise ValueError(f"Missing required Snowflake environment variables: {missing_fields}")
             
-            connection_timeout=int(os.getenv("SNOWFLAKE_CONNECTION_TIMEOUT", "60")),
-            network_timeout=int(os.getenv("SNOWFLAKE_NETWORK_TIMEOUT", "60")),
-            login_timeout=int(os.getenv("SNOWFLAKE_LOGIN_TIMEOUT", "60")),
-            
-            s3_bucket=os.getenv("S3_BUCKET", ""),
-            s3_prefix=os.getenv("S3_PREFIX", "streaming-pipeline"),
-            s3_region=os.getenv("S3_REGION", "us-east-1")
-        )
+            return SnowflakeConfig(
+                account=os.getenv("SNOWFLAKE_ACCOUNT"),
+                user=os.getenv("SNOWFLAKE_USER"),
+                password=os.getenv("SNOWFLAKE_PASSWORD"),
+                warehouse=os.getenv("SNOWFLAKE_WAREHOUSE"),
+                database=os.getenv("SNOWFLAKE_DATABASE"),
+                schema=os.getenv("SNOWFLAKE_SCHEMA"),
+                role=os.getenv("SNOWFLAKE_ROLE"),
+                
+                connection_timeout=int(os.getenv("SNOWFLAKE_CONNECTION_TIMEOUT", "60")),
+                network_timeout=int(os.getenv("SNOWFLAKE_NETWORK_TIMEOUT", "60")),
+                login_timeout=int(os.getenv("SNOWFLAKE_LOGIN_TIMEOUT", "60")),
+                
+                s3_bucket=os.getenv("S3_BUCKET", ""),
+                s3_prefix=os.getenv("S3_PREFIX", "streaming-pipeline"),
+                s3_region=os.getenv("S3_REGION", "us-east-1")
+            )
     
     def _load_spark_config(self) -> SparkConfig:
         """Load Spark configuration."""
@@ -223,7 +274,7 @@ class ConfigManager:
             master=os.getenv("SPARK_MASTER", "local[*]"),
             
             checkpoint_location=os.getenv("SPARK_CHECKPOINT_LOCATION", "/tmp/spark-checkpoints"),
-            trigger_processing_time=os.getenv("SPARK_TRIGGER_PROCESSING_TIME", "10 seconds"),
+            trigger_processing_time=os.getenv("SPARK_TRIGGER_PROCESSING_TIME", "60 seconds"),
             watermark_delay=os.getenv("SPARK_WATERMARK_DELAY", "1 minute"),
             
             sql_adaptive_enabled=os.getenv("SPARK_SQL_ADAPTIVE_ENABLED", "true").lower() == "true",

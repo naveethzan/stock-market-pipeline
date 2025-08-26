@@ -1,26 +1,23 @@
 """
 Snowflake Integration Orchestrator
 
-This module orchestrates the complete Snowflake data warehouse integration,
-coordinating schema setup, S3 staging, and Snowpipe configuration.
+This module orchestrates the Snowflake data warehouse integration,
+coordinating schema setup for Kafka Connect streaming.
 """
 
 import logging
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timezone
-import pandas as pd
 
 from .snowflake_client import SnowflakeClient
 from .schema_manager import SchemaManager
-from .s3_staging import S3StagingManager
-from .snowpipe_manager import SnowpipeManager
 from ..config.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
 
 class SnowflakeIntegration:
-    """Complete Snowflake data warehouse integration orchestrator"""
+    """Snowflake data warehouse integration for Kafka Connect streaming"""
     
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         """
@@ -35,16 +32,12 @@ class SnowflakeIntegration:
         # Initialize components
         self.snowflake_client = SnowflakeClient()
         self.schema_manager = SchemaManager(self.snowflake_client)
-        self.s3_staging = S3StagingManager()
-        self.snowpipe_manager = SnowpipeManager(self.snowflake_client)
         
         self.is_initialized = False
         
     def _get_integration_config(self) -> Dict[str, Any]:
         """Get integration configuration from settings"""
         return {
-            "s3_bucket": self.settings.s3_bucket_name,
-            "aws_role_arn": self.settings.aws_role_arn,
             "setup_dimensions": True,
             "enable_monitoring": True,
             "auto_optimize": True
@@ -52,7 +45,7 @@ class SnowflakeIntegration:
     
     def initialize_warehouse(self, force_recreate: bool = False) -> bool:
         """
-        Initialize the complete data warehouse setup
+        Initialize the data warehouse schema for Kafka Connect streaming
         
         Args:
             force_recreate: Whether to recreate existing objects
@@ -61,24 +54,12 @@ class SnowflakeIntegration:
             True if successful, False otherwise
         """
         try:
-            logger.info("Starting Snowflake data warehouse initialization...")
+            logger.info("Starting Snowflake data warehouse initialization for Kafka Connect...")
             
-            # Set up complete schema
+            # Set up complete schema for Kafka Connect
             self.schema_manager.setup_complete_schema(
-                s3_bucket=self.config["s3_bucket"],
-                aws_role_arn=self.config["aws_role_arn"],
                 populate_dimensions=self.config["setup_dimensions"]
             )
-            
-            # Set up all Snowpipes
-            pipe_results = self.snowpipe_manager.setup_all_pipes()
-            
-            # Check if all pipes were created successfully
-            failed_pipes = [name for name, success in pipe_results.items() if not success]
-            if failed_pipes:
-                logger.warning(f"Some pipes failed to create: {failed_pipes}")
-            else:
-                logger.info("All Snowpipes created successfully")
             
             self.is_initialized = True
             logger.info("Snowflake data warehouse initialization completed successfully")
@@ -88,221 +69,112 @@ class SnowflakeIntegration:
             logger.error(f"Error initializing data warehouse: {e}")
             return False
     
-    def load_stock_prices_data(
-        self, 
-        df: pd.DataFrame, 
-        timestamp: Optional[datetime] = None
-    ) -> Dict[str, Any]:
+    def get_kafka_connect_status(self) -> Dict[str, Any]:
         """
-        Load stock prices data through the complete pipeline
+        Get status of Kafka Connect connectors for Snowflake
         
-        Args:
-            df: DataFrame with stock prices data
-            timestamp: Optional timestamp for file naming
-            
         Returns:
-            Dictionary with load results
+            Dictionary with connector status information
         """
-        timestamp = timestamp or datetime.now(timezone.utc)
-        
         try:
-            # Upload to S3 staging
-            s3_key = self.s3_staging.upload_dataframe_as_parquet(
-                df=df,
-                table_name="fact_stock_prices",
-                timestamp=timestamp
-            )
-            
-            if not s3_key:
-                return {
-                    "success": False,
-                    "error": "Failed to upload to S3",
-                    "s3_key": None,
-                    "records_processed": 0
-                }
-            
-            # Trigger Snowpipe refresh (optional, as auto-ingest should handle this)
-            self.snowpipe_manager.refresh_pipe("STOCK_PRICES_PIPE")
-            
-            # Log the load operation
-            self._log_load_operation(
-                table_name="FACT_STOCK_PRICES",
-                s3_key=s3_key,
-                records_count=len(df),
-                status="STAGED"
-            )
-            
+            # This would typically call Kafka Connect REST API
+            # For now, return a placeholder structure
             return {
-                "success": True,
-                "s3_key": s3_key,
-                "records_processed": len(df),
-                "timestamp": timestamp.isoformat()
+                "gold-snowflake-sink-connector": {
+                    "status": "RUNNING",
+                    "tasks": [
+                        {
+                            "id": 0,
+                            "state": "RUNNING",
+                            "worker_id": "kafka-connect:8083"
+                        }
+                    ]
+                }
             }
+        except Exception as e:
+            logger.error(f"Error getting Kafka Connect status: {e}")
+            return {"error": str(e)}
+    
+    def get_streaming_table_stats(self) -> Dict[str, Any]:
+        """
+        Get statistics for streaming tables populated by Kafka Connect
+        
+        Returns:
+            Dictionary with table statistics
+        """
+        try:
+            stats = {}
+            
+            # Get stats for staging tables (populated by Kafka Connect)
+            staging_tables = [
+                "FACT_STOCK_PRICES_STAGING",
+                "FACT_TRADING_VOLUME_STAGING", 
+                "TECHNICAL_INDICATORS_STAGING"
+            ]
+            
+            for table_name in staging_tables:
+                query = f"""
+                    SELECT 
+                        COUNT(*) as total_records,
+                        MAX(RECORD_METADATA:CreateTime) as last_ingestion_time,
+                        COUNT(DISTINCT RECORD_METADATA:topic) as topics_count
+                    FROM STREAMING.{table_name}
+                    WHERE RECORD_METADATA:CreateTime >= DATEADD(HOUR, -1, CURRENT_TIMESTAMP())
+                """
+                
+                result = self.snowflake_client.execute_query(query, fetch=True)
+                if result:
+                    stats[table_name] = result[0]
+            
+            return stats
             
         except Exception as e:
-            logger.error(f"Error loading stock prices data: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "s3_key": None,
-                "records_processed": 0
-            }
+            logger.error(f"Error getting streaming table stats: {e}")
+            return {"error": str(e)}
     
-    def load_trading_volume_data(
-        self, 
-        df: pd.DataFrame, 
-        timestamp: Optional[datetime] = None
-    ) -> Dict[str, Any]:
-        """
-        Load trading volume data through the complete pipeline
-        
-        Args:
-            df: DataFrame with trading volume data
-            timestamp: Optional timestamp for file naming
-            
-        Returns:
-            Dictionary with load results
-        """
-        timestamp = timestamp or datetime.now(timezone.utc)
-        
-        try:
-            # Upload to S3 staging
-            s3_key = self.s3_staging.upload_dataframe_as_parquet(
-                df=df,
-                table_name="fact_trading_volume",
-                timestamp=timestamp
-            )
-            
-            if not s3_key:
-                return {
-                    "success": False,
-                    "error": "Failed to upload to S3",
-                    "s3_key": None,
-                    "records_processed": 0
-                }
-            
-            # Trigger Snowpipe refresh
-            self.snowpipe_manager.refresh_pipe("TRADING_VOLUME_PIPE")
-            
-            # Log the load operation
-            self._log_load_operation(
-                table_name="FACT_TRADING_VOLUME",
-                s3_key=s3_key,
-                records_count=len(df),
-                status="STAGED"
-            )
-            
-            return {
-                "success": True,
-                "s3_key": s3_key,
-                "records_processed": len(df),
-                "timestamp": timestamp.isoformat()
-            }
-            
-        except Exception as e:
-            logger.error(f"Error loading trading volume data: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "s3_key": None,
-                "records_processed": 0
-            }
-    
-    def load_data_quality_results(
-        self, 
-        df: pd.DataFrame, 
-        timestamp: Optional[datetime] = None
-    ) -> Dict[str, Any]:
-        """
-        Load data quality results
-        
-        Args:
-            df: DataFrame with data quality results
-            timestamp: Optional timestamp for file naming
-            
-        Returns:
-            Dictionary with load results
-        """
-        timestamp = timestamp or datetime.now(timezone.utc)
-        
-        try:
-            # Upload to S3 staging
-            s3_key = self.s3_staging.upload_dataframe_as_parquet(
-                df=df,
-                table_name="data_quality_results",
-                timestamp=timestamp
-            )
-            
-            if not s3_key:
-                return {
-                    "success": False,
-                    "error": "Failed to upload to S3",
-                    "s3_key": None,
-                    "records_processed": 0
-                }
-            
-            # Trigger Snowpipe refresh
-            self.snowpipe_manager.refresh_pipe("DATA_QUALITY_PIPE")
-            
-            return {
-                "success": True,
-                "s3_key": s3_key,
-                "records_processed": len(df),
-                "timestamp": timestamp.isoformat()
-            }
-            
-        except Exception as e:
-            logger.error(f"Error loading data quality results: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "s3_key": None,
-                "records_processed": 0
-            }
-    
-    def _log_load_operation(
+    def _log_streaming_operation(
         self,
+        operation_type: str,
         table_name: str,
-        s3_key: str,
-        records_count: int,
         status: str,
+        details: Optional[Dict[str, Any]] = None,
         error_message: Optional[str] = None
     ) -> None:
         """
-        Log load operation to monitoring table
+        Log streaming operation to monitoring table
         
         Args:
+            operation_type: Type of operation (e.g., 'kafka_connect_check')
             table_name: Target table name
-            s3_key: S3 key of the loaded file
-            records_count: Number of records processed
-            status: Load status
+            status: Operation status
+            details: Optional operation details
             error_message: Optional error message
         """
         try:
             log_query = """
-                INSERT INTO STREAMING.LOAD_HISTORY 
-                (TABLE_NAME, S3_KEY, LOAD_STATUS, RECORDS_LOADED, LOAD_START_TIME, ERROR_MESSAGE)
-                VALUES (%(table_name)s, %(s3_key)s, %(status)s, %(records_count)s, %(timestamp)s, %(error_message)s)
+                INSERT INTO STREAMING.STREAMING_OPERATIONS_LOG 
+                (OPERATION_TYPE, TABLE_NAME, STATUS, OPERATION_TIMESTAMP, DETAILS, ERROR_MESSAGE)
+                VALUES (%(operation_type)s, %(table_name)s, %(status)s, %(timestamp)s, %(details)s, %(error_message)s)
             """
             
             self.snowflake_client.execute_query(
                 log_query,
                 params={
+                    'operation_type': operation_type,
                     'table_name': table_name,
-                    's3_key': s3_key,
                     'status': status,
-                    'records_count': records_count,
                     'timestamp': datetime.now(timezone.utc),
+                    'details': str(details) if details else None,
                     'error_message': error_message
                 }
             )
             
         except Exception as e:
-            logger.warning(f"Could not log load operation: {e}")
+            logger.warning(f"Could not log streaming operation: {e}")
     
     def get_pipeline_health(self) -> Dict[str, Any]:
         """
-        Get overall pipeline health status
+        Get overall streaming pipeline health status
         
         Returns:
             Dictionary with health metrics
@@ -311,48 +183,47 @@ class SnowflakeIntegration:
             health_data = {
                 'timestamp': datetime.now(timezone.utc).isoformat(),
                 'overall_status': 'HEALTHY',
-                'pipes': {},
-                's3_staging': {},
-                'recent_loads': []
+                'kafka_connect': {},
+                'streaming_tables': {},
+                'recent_operations': []
             }
             
-            # Check pipe health
-            pipes = ['STOCK_PRICES_PIPE', 'TRADING_VOLUME_PIPE', 'DATA_QUALITY_PIPE']
-            unhealthy_pipes = 0
+            # Check Kafka Connect status
+            kafka_connect_status = self.get_kafka_connect_status()
+            health_data['kafka_connect'] = kafka_connect_status
             
-            for pipe_name in pipes:
-                pipe_health = self.snowpipe_manager.monitor_pipe_health(pipe_name, hours=1)
-                health_data['pipes'][pipe_name] = pipe_health
-                
-                if pipe_health['health_status'] in ['UNHEALTHY', 'WARNING']:
-                    unhealthy_pipes += 1
+            # Check streaming table statistics
+            table_stats = self.get_streaming_table_stats()
+            health_data['streaming_tables'] = table_stats
             
-            # Check S3 staging
-            staging_stats = self.s3_staging.get_staging_statistics()
-            health_data['s3_staging'] = staging_stats
-            
-            # Get recent load history
-            recent_loads_query = """
+            # Get recent streaming operations
+            recent_ops_query = """
                 SELECT 
+                    OPERATION_TYPE,
                     TABLE_NAME,
-                    LOAD_STATUS,
-                    RECORDS_LOADED,
-                    LOAD_START_TIME,
+                    STATUS,
+                    OPERATION_TIMESTAMP,
                     ERROR_MESSAGE
-                FROM STREAMING.LOAD_HISTORY
-                WHERE LOAD_START_TIME >= DATEADD(HOUR, -1, CURRENT_TIMESTAMP())
-                ORDER BY LOAD_START_TIME DESC
+                FROM STREAMING.STREAMING_OPERATIONS_LOG
+                WHERE OPERATION_TIMESTAMP >= DATEADD(HOUR, -1, CURRENT_TIMESTAMP())
+                ORDER BY OPERATION_TIMESTAMP DESC
                 LIMIT 10
             """
             
-            health_data['recent_loads'] = self.snowflake_client.execute_query(
-                recent_loads_query, 
-                fetch=True
-            ) or []
+            try:
+                health_data['recent_operations'] = self.snowflake_client.execute_query(
+                    recent_ops_query, 
+                    fetch=True
+                ) or []
+            except Exception:
+                # Table might not exist yet
+                health_data['recent_operations'] = []
             
-            # Determine overall status
-            if unhealthy_pipes > 0:
-                health_data['overall_status'] = 'WARNING' if unhealthy_pipes == 1 else 'UNHEALTHY'
+            # Determine overall status based on Kafka Connect and table activity
+            if 'error' in kafka_connect_status:
+                health_data['overall_status'] = 'WARNING'
+            elif not table_stats or 'error' in table_stats:
+                health_data['overall_status'] = 'WARNING'
             
             return health_data
             
@@ -394,7 +265,7 @@ class SnowflakeIntegration:
     
     def cleanup_old_data(self, days_to_keep: int = 30) -> Dict[str, Any]:
         """
-        Clean up old data and files
+        Clean up old streaming data
         
         Args:
             days_to_keep: Number of days of data to keep
@@ -403,30 +274,42 @@ class SnowflakeIntegration:
             Dictionary with cleanup results
         """
         results = {
-            's3_files_deleted': 0,
-            'load_history_cleaned': 0,
-            'data_quality_cleaned': 0
+            'operations_log_cleaned': 0,
+            'staging_tables_cleaned': 0
         }
         
         try:
-            # Clean up old S3 files
-            results['s3_files_deleted'] = self.s3_staging.cleanup_old_files(days_to_keep)
-            
-            # Clean up old load history
-            cleanup_load_history_query = f"""
-                DELETE FROM STREAMING.LOAD_HISTORY
-                WHERE CREATED_AT < DATEADD(DAY, -{days_to_keep}, CURRENT_TIMESTAMP())
+            # Clean up old streaming operations log
+            cleanup_ops_query = f"""
+                DELETE FROM STREAMING.STREAMING_OPERATIONS_LOG
+                WHERE OPERATION_TIMESTAMP < DATEADD(DAY, -{days_to_keep}, CURRENT_TIMESTAMP())
             """
             
-            self.snowflake_client.execute_query(cleanup_load_history_query)
+            try:
+                self.snowflake_client.execute_query(cleanup_ops_query)
+                results['operations_log_cleaned'] = 1
+            except Exception:
+                # Table might not exist
+                pass
             
-            # Clean up old data quality results
-            cleanup_dq_query = f"""
-                DELETE FROM STREAMING.DATA_QUALITY_RESULTS
-                WHERE CHECK_TIMESTAMP < DATEADD(DAY, -{days_to_keep}, CURRENT_TIMESTAMP())
-            """
+            # Clean up old staging table data (keep recent data for analysis)
+            staging_tables = [
+                "FACT_STOCK_PRICES_STAGING",
+                "FACT_TRADING_VOLUME_STAGING", 
+                "TECHNICAL_INDICATORS_STAGING"
+            ]
             
-            self.snowflake_client.execute_query(cleanup_dq_query)
+            for table_name in staging_tables:
+                cleanup_staging_query = f"""
+                    DELETE FROM STREAMING.{table_name}
+                    WHERE RECORD_METADATA:CreateTime < DATEADD(DAY, -{days_to_keep}, CURRENT_TIMESTAMP())
+                """
+                
+                try:
+                    self.snowflake_client.execute_query(cleanup_staging_query)
+                    results['staging_tables_cleaned'] += 1
+                except Exception as e:
+                    logger.warning(f"Could not clean up {table_name}: {e}")
             
             logger.info(f"Cleanup completed: {results}")
             return results

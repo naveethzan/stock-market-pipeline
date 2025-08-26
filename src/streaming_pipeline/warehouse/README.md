@@ -1,49 +1,47 @@
 # Snowflake Data Warehouse Integration
 
-This module provides comprehensive integration with Snowflake data warehouse for the streaming pipeline, including schema management, S3 staging, and Snowpipe automation.
+This module provides Snowflake integration for the Kafka Connect streaming pipeline, including schema management and monitoring.
 
 ## Overview
 
-The Snowflake integration consists of several key components:
+The Snowflake integration consists of key components for Kafka Connect streaming:
 
 - **SnowflakeClient**: Core client for database operations
-- **SchemaManager**: Manages database schemas, tables, and DDL operations
-- **S3StagingManager**: Handles S3 staging operations for data loading
-- **SnowpipeManager**: Manages Snowpipe operations for automatic data loading
-- **SnowflakeIntegration**: Orchestrates the complete integration workflow
+- **SchemaManager**: Manages database schemas, tables, and DDL operations for Kafka Connect
+- **SnowflakeIntegration**: Orchestrates schema setup and monitoring
 
 ## Architecture
 
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Spark Stream  │───▶│   S3 Staging     │───▶│   Snowpipe      │
-│   Processor     │    │   (Parquet)      │    │   Auto-Ingest   │
+│   Kafka Topics  │───▶│   Kafka Connect  │───▶│   Snowflake     │
+│   (Processed)   │    │   Snowflake Sink │    │   Staging Tables│
 └─────────────────┘    └──────────────────┘    └─────────────────┘
                                                          │
                                                          ▼
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Monitoring    │◀───│   Snowflake      │◀───│   Dimensional   │
-│   & Alerting    │    │   Data Warehouse │    │   Model         │
+│   Monitoring    │◀───│   Snowflake      │    │   Dimensional   │
+│   & Analytics   │    │   Data Warehouse │    │   Model         │
 └─────────────────┘    └──────────────────┘    └─────────────────┘
 ```
 
 ## Data Model
 
-The integration implements a dimensional model with the following structure:
+The integration implements a dimensional model optimized for Kafka Connect streaming:
+
+### Staging Tables (Kafka Connect Targets)
+- **FACT_STOCK_PRICES_STAGING**: Real-time stock price data from Kafka
+- **FACT_TRADING_VOLUME_STAGING**: Trading volume metrics from Kafka
+- **TECHNICAL_INDICATORS_STAGING**: Technical analysis data from Kafka
 
 ### Dimension Tables
 - **DIM_COMPANY**: Company information with SCD Type 2
 - **DIM_DATE**: Date dimension with business calendar
 - **DIM_TIME**: Time dimension with market sessions
 
-### Fact Tables
-- **FACT_STOCK_PRICES**: Stock price data with technical indicators
-- **FACT_TRADING_VOLUME**: Trading volume metrics
-
-### Utility Tables
-- **DATA_QUALITY_RESULTS**: Data quality monitoring
-- **PIPELINE_MONITORING**: Pipeline execution tracking
-- **LOAD_HISTORY**: Data loading audit trail
+### Monitoring Tables
+- **STREAMING_OPERATIONS_LOG**: Kafka Connect operation tracking
+- **PIPELINE_MONITORING**: Pipeline execution monitoring
 
 ## Configuration
 
@@ -58,36 +56,18 @@ SNOWFLAKE_WAREHOUSE=STOCK_WH
 SNOWFLAKE_DATABASE=STOCK_MARKET
 SNOWFLAKE_SCHEMA=STREAMING
 SNOWFLAKE_ROLE=SYSADMIN
-
-# AWS S3 Configuration
-S3_BUCKET_NAME=your-s3-bucket
-AWS_REGION=us-east-1
-AWS_ACCESS_KEY_ID=your_access_key
-AWS_SECRET_ACCESS_KEY=your_secret_key
-AWS_ROLE_ARN=arn:aws:iam::account:role/snowflake-role
 ```
 
-### AWS IAM Role Setup
+### Kafka Connect Configuration
 
-Create an IAM role for Snowflake with the following policy:
+The Snowflake Sink Connector configuration:
 
 ```json
 {
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Action": [
-                "s3:GetObject",
-                "s3:GetObjectVersion",
-                "s3:ListBucket"
-            ],
-            "Resource": [
-                "arn:aws:s3:::your-bucket/*",
-                "arn:aws:s3:::your-bucket"
-            ]
-        }
-    ]
+  "name": "gold-snowflake-sink-connector",
+  "connector.class": "com.snowflake.kafka.connector.SnowflakeSinkConnector",
+  "topics": "processed-stock-prices,processed-trading-volume,processed-technical-indicators",
+  "snowflake.topic2table.map": "processed-stock-prices:FACT_STOCK_PRICES_STAGING,processed-trading-volume:FACT_TRADING_VOLUME_STAGING,processed-technical-indicators:TECHNICAL_INDICATORS_STAGING"
 }
 ```
 
@@ -97,48 +77,40 @@ Create an IAM role for Snowflake with the following policy:
 
 ```python
 from src.streaming_pipeline.warehouse import SnowflakeIntegration
-import pandas as pd
 
 # Initialize integration
 integration = SnowflakeIntegration()
 
-# Set up warehouse (one-time setup)
+# Set up warehouse schema for Kafka Connect
 integration.initialize_warehouse()
 
-# Load data
-stock_data = pd.DataFrame({
-    'company_key': [1, 2],
-    'date_key': [20240118, 20240118],
-    'close_price': [150.0, 2500.0],
-    # ... other columns
-})
+# Check Kafka Connect status
+kafka_status = integration.get_kafka_connect_status()
+print(f"Kafka Connect status: {kafka_status}")
 
-result = integration.load_stock_prices_data(stock_data)
-print(f"Loaded {result['records_processed']} records")
+# Get streaming table statistics
+table_stats = integration.get_streaming_table_stats()
+print(f"Streaming data: {table_stats}")
 ```
 
 ### Individual Components
 
 ```python
 from src.streaming_pipeline.warehouse import (
-    SnowflakeClient, SchemaManager, S3StagingManager, SnowpipeManager
+    SnowflakeClient, SchemaManager
 )
 
 # Use individual components
 client = SnowflakeClient()
 schema_manager = SchemaManager(client)
-s3_staging = S3StagingManager()
-snowpipe_manager = SnowpipeManager(client)
 
-# Create tables
+# Create tables for Kafka Connect
 schema_manager.create_dimension_tables()
 schema_manager.create_fact_tables()
 
-# Upload data to S3
-s3_key = s3_staging.upload_dataframe_as_parquet(df, "fact_stock_prices")
-
-# Monitor pipes
-health = snowpipe_manager.monitor_pipe_health("STOCK_PRICES_PIPE")
+# Check table exists
+exists = client.check_table_exists("FACT_STOCK_PRICES_STAGING", "STREAMING")
+print(f"Staging table exists: {exists}")
 ```
 
 ### Monitoring and Maintenance
@@ -147,11 +119,13 @@ health = snowpipe_manager.monitor_pipe_health("STOCK_PRICES_PIPE")
 # Get pipeline health
 health = integration.get_pipeline_health()
 print(f"Overall status: {health['overall_status']}")
+print(f"Kafka Connect: {health['kafka_connect']}")
+print(f"Streaming tables: {health['streaming_tables']}")
 
 # Optimize tables
 optimization_results = integration.optimize_tables()
 
-# Clean up old data
+# Clean up old streaming data
 cleanup_results = integration.cleanup_old_data(days_to_keep=30)
 
 # Get usage report
@@ -160,72 +134,80 @@ usage_report = integration.get_warehouse_usage_report(days=7)
 
 ## Data Loading Process
 
-1. **Data Preparation**: Spark processes streaming data and prepares it in the dimensional model format
-2. **S3 Staging**: Data is uploaded to S3 in Parquet format with proper partitioning
-3. **Snowpipe Ingestion**: Snowpipe automatically detects new files and loads them into Snowflake
-4. **Data Quality**: Quality checks are performed and results are stored
-5. **Monitoring**: Pipeline health and performance metrics are tracked
+1. **Kafka Topics**: Spark processes streaming data and publishes to processed topics
+2. **Kafka Connect**: Snowflake Sink Connector continuously consumes from topics
+3. **Staging Tables**: Data is inserted into Snowflake staging tables in real-time
+4. **Monitoring**: Pipeline health and performance metrics are tracked
+5. **Analytics**: Data is available for immediate querying and analysis
 
-## File Organization
+## Kafka Connect Data Flow
 
 ```
-staging/streaming/
-├── fact_stock_prices/
-│   └── 2024/01/18/
-│       └── 09/
-│           └── fact_stock_prices_20240118_093000_123456.parquet
-├── fact_trading_volume/
-└── data_quality_results/
-
-processed/streaming/
-└── [same structure after successful loading]
-
-errors/streaming/
-└── [failed files with error metadata]
+processed-stock-prices topic → FACT_STOCK_PRICES_STAGING table
+processed-trading-volume topic → FACT_TRADING_VOLUME_STAGING table  
+processed-technical-indicators topic → TECHNICAL_INDICATORS_STAGING table
 ```
 
-## Partitioning Strategy
+## Table Structure
 
-- **Date Partitioning**: Files are organized by date (YYYY/MM/DD/HH)
-- **Table Clustering**: Fact tables are clustered on (company_key, date_key, time_key)
-- **Time-based Partitioning**: Snowflake tables use automatic clustering
+### Staging Tables
+
+Kafka Connect automatically creates tables with:
+- **Data columns**: All fields from Kafka messages
+- **Metadata columns**: 
+  - `RECORD_METADATA`: Kafka metadata (topic, partition, offset, timestamp)
+  - Automatic schema evolution support
+
+### Example Query
+
+```sql
+-- Query recent streaming data
+SELECT 
+    symbol,
+    current_price,
+    volume,
+    RECORD_METADATA:CreateTime as ingestion_time,
+    RECORD_METADATA:topic as source_topic
+FROM STREAMING.FACT_STOCK_PRICES_STAGING
+WHERE RECORD_METADATA:CreateTime >= DATEADD(HOUR, -1, CURRENT_TIMESTAMP())
+ORDER BY RECORD_METADATA:CreateTime DESC;
+```
 
 ## Error Handling
 
-The integration provides comprehensive error handling:
+The integration provides error handling for:
 
 - **Connection Failures**: Automatic retry with exponential backoff
-- **Data Quality Issues**: Invalid records are quarantined
-- **Snowpipe Failures**: Failed files are moved to error directory
-- **Schema Evolution**: Backward-compatible schema changes are handled
+- **Kafka Connect Issues**: Status monitoring and alerting
+- **Schema Evolution**: Automatic schema updates via Kafka Connect
+- **Data Quality**: Monitoring of streaming data patterns
 
 ## Monitoring
 
 ### Key Metrics
-- **Throughput**: Records processed per second
-- **Latency**: End-to-end processing time
-- **Error Rates**: Failed loads and data quality issues
+- **Throughput**: Records ingested per second via Kafka Connect
+- **Latency**: End-to-end streaming latency (typically 30 seconds)
+- **Data Freshness**: Time since last record ingestion
 - **Resource Usage**: Snowflake credits and compute usage
 
 ### Health Checks
-- Pipe execution status
-- Recent load success rates
-- Data freshness
-- Storage utilization
+- Kafka Connect connector status
+- Recent data ingestion rates
+- Table record counts
+- Schema evolution events
 
 ## Performance Optimization
 
 ### Best Practices
-1. **Batch Size**: Optimize Parquet file sizes (50-100MB recommended)
-2. **Compression**: Use Snappy compression for balance of speed/size
+1. **Buffer Settings**: Optimize Kafka Connect buffer sizes
+2. **Batch Processing**: Configure appropriate batch intervals
 3. **Clustering**: Maintain clustering on frequently queried columns
-4. **Warehouse Sizing**: Right-size warehouses based on workload
+4. **Warehouse Sizing**: Right-size warehouses based on query workload
 
-### Tuning Parameters
-- Spark batch intervals
-- Snowpipe refresh frequency
-- File format settings
-- Connection pooling
+### Kafka Connect Tuning
+- `buffer.count.records`: 1000 (batch size)
+- `buffer.size.bytes`: 5MB (buffer size)
+- `buffer.flush.time`: 30 seconds (flush interval)
 
 ## Testing
 
@@ -245,23 +227,23 @@ pytest src/streaming_pipeline/warehouse/test_snowflake_integration.py -m integra
 
 1. **Connection Timeouts**
    - Check network connectivity
-   - Verify credentials
+   - Verify Snowflake credentials
    - Increase timeout settings
 
-2. **Snowpipe Not Loading**
-   - Verify S3 permissions
-   - Check notification channel setup
-   - Review pipe execution history
+2. **Kafka Connect Not Loading**
+   - Check connector status via REST API
+   - Verify topic names and table mapping
+   - Review connector logs
 
-3. **Data Quality Failures**
-   - Check schema compatibility
-   - Validate data types
-   - Review transformation logic
+3. **Schema Evolution Issues**
+   - Check Kafka Connect schema compatibility settings
+   - Verify Avro schema registry connectivity
+   - Review schema evolution policies
 
 4. **Performance Issues**
-   - Monitor warehouse utilization
-   - Optimize clustering keys
-   - Adjust batch sizes
+   - Monitor Snowflake warehouse utilization
+   - Optimize Kafka Connect buffer settings
+   - Check for data skew in partitions
 
 ### Debugging
 
@@ -272,41 +254,59 @@ import logging
 logging.getLogger('src.streaming_pipeline.warehouse').setLevel(logging.DEBUG)
 ```
 
+Check Kafka Connect status:
+
+```bash
+curl http://localhost:8083/connectors/gold-snowflake-sink-connector/status
+```
+
 Check Snowflake query history:
 
 ```sql
 SELECT * FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY 
 WHERE START_TIME >= DATEADD(HOUR, -1, CURRENT_TIMESTAMP())
+AND QUERY_TEXT ILIKE '%STREAMING%'
 ORDER BY START_TIME DESC;
 ```
 
 ## Security Considerations
 
-- Use IAM roles instead of access keys when possible
-- Encrypt data in transit and at rest
+- Use strong Snowflake passwords and MFA
 - Implement least-privilege access policies
+- Monitor query patterns and access logs
 - Regularly rotate credentials
-- Monitor access patterns
+- Use network policies to restrict access
 
 ## Maintenance
 
 ### Regular Tasks
-- Monitor pipe health daily
+- Monitor Kafka Connect connector health daily
 - Optimize tables weekly
-- Clean up old files monthly
+- Clean up old staging data monthly
 - Review usage and costs monthly
-- Update schemas as needed
+- Update schemas as needed for new data fields
 
 ### Backup and Recovery
 - Snowflake provides automatic backups
-- S3 versioning for staged files
+- Kafka topic retention for replay capability
 - Document recovery procedures
 - Test disaster recovery scenarios
+
+## Real-time Analytics
+
+With Kafka Connect streaming, you can:
+
+- Query data with ~30 second latency
+- Build real-time dashboards
+- Set up alerts on streaming data
+- Perform continuous analytics
+- Join streaming data with historical data
 
 ## Support
 
 For issues and questions:
 1. Check the troubleshooting section
-2. Review Snowflake documentation
-3. Check AWS S3 and IAM configurations
+2. Review Kafka Connect documentation
+3. Check Snowflake Kafka Connector documentation
 4. Enable debug logging for detailed error information
+5. Monitor Kafka Connect REST API endpoints

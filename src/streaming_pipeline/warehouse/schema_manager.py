@@ -73,52 +73,44 @@ class SchemaManager:
                 logger.error(f"Error creating file format {format_name}: {e}")
                 raise
     
-    def create_stages(self, s3_bucket: str, aws_role_arn: str) -> None:
+    def create_kafka_connect_tables(self) -> None:
         """
-        Create external stages for S3 integration
+        Create staging tables for Kafka Connect Snowflake Sink
         
-        Args:
-            s3_bucket: S3 bucket name
-            aws_role_arn: AWS IAM role ARN for Snowflake access
+        These tables are automatically created by Kafka Connect, but we can
+        pre-create them with specific schemas if needed.
         """
-        # Create storage integration first
-        storage_integration_ddl = f"""
-            CREATE OR REPLACE STORAGE INTEGRATION S3_INTEGRATION
-            TYPE = EXTERNAL_STAGE
-            STORAGE_PROVIDER = S3
-            ENABLED = TRUE
-            STORAGE_AWS_ROLE_ARN = '{aws_role_arn}'
-            STORAGE_ALLOWED_LOCATIONS = ('s3://{s3_bucket}/staging/', 's3://{s3_bucket}/processed/')
-        """
+        # Note: Kafka Connect will automatically create these tables
+        # This method is for documentation and optional pre-creation
         
-        # Create stages
-        stages = {
-            "STREAMING_STAGE": f"""
-                CREATE OR REPLACE STAGE STREAMING.STREAMING_STAGE
-                URL = 's3://{s3_bucket}/staging/streaming/'
-                STORAGE_INTEGRATION = S3_INTEGRATION
-                FILE_FORMAT = STREAMING.PARQUET_FORMAT
+        staging_tables = {
+            "FACT_STOCK_PRICES_STAGING": """
+                CREATE TABLE IF NOT EXISTS STREAMING.FACT_STOCK_PRICES_STAGING (
+                    RECORD_METADATA VARIANT,
+                    RECORD_CONTENT VARIANT
+                )
             """,
-            "PROCESSED_STAGE": f"""
-                CREATE OR REPLACE STAGE STREAMING.PROCESSED_STAGE
-                URL = 's3://{s3_bucket}/processed/streaming/'
-                STORAGE_INTEGRATION = S3_INTEGRATION
-                FILE_FORMAT = STREAMING.PARQUET_FORMAT
+            "FACT_TRADING_VOLUME_STAGING": """
+                CREATE TABLE IF NOT EXISTS STREAMING.FACT_TRADING_VOLUME_STAGING (
+                    RECORD_METADATA VARIANT,
+                    RECORD_CONTENT VARIANT
+                )
+            """,
+            "TECHNICAL_INDICATORS_STAGING": """
+                CREATE TABLE IF NOT EXISTS STREAMING.TECHNICAL_INDICATORS_STAGING (
+                    RECORD_METADATA VARIANT,
+                    RECORD_CONTENT VARIANT
+                )
             """
         }
         
         try:
-            # Create storage integration
-            self.client.execute_query(storage_integration_ddl)
-            logger.info("Created storage integration: S3_INTEGRATION")
-            
-            # Create stages
-            for stage_name, ddl in stages.items():
+            for table_name, ddl in staging_tables.items():
                 self.client.execute_query(ddl)
-                logger.info(f"Created stage: {stage_name}")
+                logger.info(f"Created Kafka Connect staging table: {table_name}")
                 
         except Exception as e:
-            logger.error(f"Error creating stages: {e}")
+            logger.error(f"Error creating Kafka Connect staging tables: {e}")
             raise
     
     def create_dimension_tables(self) -> None:
@@ -312,19 +304,16 @@ class SchemaManager:
             )
         """
         
-        # Load history table
-        load_history_ddl = """
-            CREATE OR REPLACE TABLE STREAMING.LOAD_HISTORY (
-                LOAD_KEY NUMBER AUTOINCREMENT PRIMARY KEY,
+        # Streaming operations log table
+        streaming_operations_ddl = """
+            CREATE OR REPLACE TABLE STREAMING.STREAMING_OPERATIONS_LOG (
+                OPERATION_KEY NUMBER AUTOINCREMENT PRIMARY KEY,
+                OPERATION_TYPE VARCHAR(100) NOT NULL,
                 TABLE_NAME VARCHAR(100) NOT NULL,
-                FILE_NAME VARCHAR(500),
-                S3_KEY VARCHAR(1000),
-                LOAD_STATUS VARCHAR(20) NOT NULL,
-                RECORDS_LOADED NUMBER,
-                LOAD_START_TIME TIMESTAMP_NTZ,
-                LOAD_END_TIME TIMESTAMP_NTZ,
+                STATUS VARCHAR(20) NOT NULL,
+                OPERATION_TIMESTAMP TIMESTAMP_NTZ,
+                DETAILS VARCHAR(2000),
                 ERROR_MESSAGE VARCHAR(1000),
-                SNOWPIPE_NAME VARCHAR(100),
                 CREATED_AT TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
             )
         """
@@ -332,7 +321,7 @@ class SchemaManager:
         utility_tables = {
             "DATA_QUALITY_RESULTS": data_quality_ddl,
             "PIPELINE_MONITORING": pipeline_monitoring_ddl,
-            "LOAD_HISTORY": load_history_ddl
+            "STREAMING_OPERATIONS_LOG": streaming_operations_ddl
         }
         
         for table_name, ddl in utility_tables.items():
@@ -445,29 +434,25 @@ class SchemaManager:
     
     def setup_complete_schema(
         self, 
-        s3_bucket: str, 
-        aws_role_arn: str,
         populate_dimensions: bool = True
     ) -> None:
         """
-        Set up complete schema with all tables and configurations
+        Set up complete schema for Kafka Connect streaming
         
         Args:
-            s3_bucket: S3 bucket name for staging
-            aws_role_arn: AWS IAM role ARN
             populate_dimensions: Whether to populate dimension tables
         """
         try:
-            logger.info("Starting complete schema setup...")
+            logger.info("Starting complete schema setup for Kafka Connect...")
             
             # Create database and schemas
             self.create_database_and_schemas()
             
-            # Create file formats
+            # Create file formats (still needed for some operations)
             self.create_file_formats()
             
-            # Create stages
-            self.create_stages(s3_bucket, aws_role_arn)
+            # Create Kafka Connect staging tables
+            self.create_kafka_connect_tables()
             
             # Create dimension tables
             self.create_dimension_tables()
@@ -486,7 +471,7 @@ class SchemaManager:
             # Create indexes/search optimization
             self.create_indexes()
             
-            logger.info("Complete schema setup finished successfully")
+            logger.info("Complete schema setup for Kafka Connect finished successfully")
             
         except Exception as e:
             logger.error(f"Error in complete schema setup: {e}")

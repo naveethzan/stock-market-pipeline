@@ -7,7 +7,7 @@ import json
 import logging
 import struct
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional, Union, List
 
 import avro.schema
 import avro.io
@@ -116,8 +116,16 @@ class AvroSerializer:
             except (ValueError, TypeError):
                 return None
         
+        # Extract symbol with validation - ensure it's never null or empty
+        symbol = global_quote.get("01. symbol", "")
+        if not symbol or symbol.strip() == "":
+            # Raise error instead of using fallback
+            error_msg = f"Empty symbol in global quote data - this should not happen after filtering"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
         transformed = {
-            "symbol": global_quote.get("01. symbol", ""),
+            "symbol": symbol,
             "open_price": safe_float(global_quote.get("02. open")),
             "high_price": safe_float(global_quote.get("03. high")),
             "low_price": safe_float(global_quote.get("04. low")),
@@ -147,13 +155,27 @@ class AvroSerializer:
         Returns:
             List of transformed data points matching Avro schema
         """
-        time_series = data.get("Time Series", {})
         metadata = data.get("_metadata", {})
         meta_data = data.get("Meta Data", {})
         
         symbol = metadata.get("symbol", meta_data.get("2. Symbol", ""))
+        # Validate symbol is not empty - skip if invalid
+        if not symbol or symbol.strip() == "":
+            logger.warning("Empty symbol in intraday data, skipping entire dataset")
+            return []  # Return empty list to skip invalid data
         interval = metadata.get("interval", meta_data.get("4. Interval", "1min"))
         request_timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
+        
+        # Find time series data - handle both real API format and mock format
+        time_series = {}
+        for key in data.keys():
+            if key.startswith("Time Series"):
+                time_series = data[key]
+                break
+        
+        # Fallback to generic "Time Series" key if no specific format found
+        if not time_series:
+            time_series = data.get("Time Series", {})
         
         transformed_points = []
         
@@ -251,18 +273,44 @@ class AvroSerializer:
             # Transform timestamps to epoch millis if needed
             transformed_data = data.copy()
             
+            # Validate and ensure symbol is never null or empty
+            if 'symbol' not in transformed_data or not transformed_data['symbol'] or transformed_data['symbol'].strip() == "":
+                error_msg = "Empty or null symbol in processed stock prices data - this should not happen after filtering"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+            
             # Convert timestamp fields to epoch millis
             if 'producer_timestamp' in transformed_data and transformed_data['producer_timestamp']:
                 if isinstance(transformed_data['producer_timestamp'], str):
                     from datetime import datetime
                     dt = datetime.fromisoformat(transformed_data['producer_timestamp'].replace('Z', '+00:00'))
                     transformed_data['producer_timestamp'] = int(dt.timestamp() * 1000)
+                elif hasattr(transformed_data['producer_timestamp'], 'timestamp'):
+                    # Handle Spark timestamp objects
+                    transformed_data['producer_timestamp'] = int(transformed_data['producer_timestamp'].timestamp() * 1000)
             
             if 'processing_timestamp' in transformed_data and transformed_data['processing_timestamp']:
                 if isinstance(transformed_data['processing_timestamp'], str):
                     from datetime import datetime
                     dt = datetime.fromisoformat(transformed_data['processing_timestamp'].replace('Z', '+00:00'))
                     transformed_data['processing_timestamp'] = int(dt.timestamp() * 1000)
+                elif hasattr(transformed_data['processing_timestamp'], 'timestamp'):
+                    # Handle Spark timestamp objects
+                    transformed_data['processing_timestamp'] = int(transformed_data['processing_timestamp'].timestamp() * 1000)
+            
+            # Ensure all required fields have proper values
+            # Handle null values properly for Avro schema
+            for field in ['open_price', 'high_price', 'low_price', 'previous_close', 'change', 'change_percent', 
+                         'sma_5min', 'sma_20min', 'price_trend_5min', 'price_volatility', 'trading_session', 'producer_timestamp']:
+                if field not in transformed_data:
+                    transformed_data[field] = None
+            
+            # Ensure required fields are present
+            if 'current_price' not in transformed_data:
+                raise ValueError("current_price is required but missing from data")
+            if 'processing_timestamp' not in transformed_data:
+                import time
+                transformed_data['processing_timestamp'] = int(time.time() * 1000)
             
             # Get schema and serialize
             schema = self._get_avro_schema("processed_stock_prices")
@@ -285,7 +333,15 @@ class AvroSerializer:
             
         except Exception as e:
             error_msg = f"Failed to serialize processed stock prices: {str(e)}"
-            logger.error(error_msg, exc_info=True)
+            logger.error(
+                "Processed stock prices serialization error",
+                extra={
+                    "error": error_msg,
+                    "data_keys": list(data.keys()) if isinstance(data, dict) else "non-dict",
+                    "symbol": data.get("symbol", "unknown") if isinstance(data, dict) else "unknown"
+                },
+                exc_info=True
+            )
             raise AvroSerializationError(error_msg) from e
     
     def serialize_processed_trading_volume(self, data: Dict[str, Any]) -> bytes:
@@ -308,12 +364,29 @@ class AvroSerializer:
                     from datetime import datetime
                     dt = datetime.fromisoformat(transformed_data['producer_timestamp'].replace('Z', '+00:00'))
                     transformed_data['producer_timestamp'] = int(dt.timestamp() * 1000)
+                elif hasattr(transformed_data['producer_timestamp'], 'timestamp'):
+                    # Handle Spark timestamp objects
+                    transformed_data['producer_timestamp'] = int(transformed_data['producer_timestamp'].timestamp() * 1000)
             
             if 'processing_timestamp' in transformed_data and transformed_data['processing_timestamp']:
                 if isinstance(transformed_data['processing_timestamp'], str):
                     from datetime import datetime
                     dt = datetime.fromisoformat(transformed_data['processing_timestamp'].replace('Z', '+00:00'))
                     transformed_data['processing_timestamp'] = int(dt.timestamp() * 1000)
+                elif hasattr(transformed_data['processing_timestamp'], 'timestamp'):
+                    # Handle Spark timestamp objects
+                    transformed_data['processing_timestamp'] = int(transformed_data['processing_timestamp'].timestamp() * 1000)
+            
+            # Ensure all optional fields have proper values
+            for field in ['volume', 'volume_weighted_price', 'volume_sma_5min', 'volume_ratio', 
+                         'volume_category', 'trading_session', 'producer_timestamp']:
+                if field not in transformed_data:
+                    transformed_data[field] = None
+            
+            # Ensure required fields are present
+            if 'processing_timestamp' not in transformed_data:
+                import time
+                transformed_data['processing_timestamp'] = int(time.time() * 1000)
             
             # Get schema and serialize
             schema = self._get_avro_schema("processed_trading_volume")
@@ -336,7 +409,15 @@ class AvroSerializer:
             
         except Exception as e:
             error_msg = f"Failed to serialize processed trading volume: {str(e)}"
-            logger.error(error_msg, exc_info=True)
+            logger.error(
+                "Processed trading volume serialization error",
+                extra={
+                    "error": error_msg,
+                    "data_keys": list(data.keys()) if isinstance(data, dict) else "non-dict",
+                    "symbol": data.get("symbol", "unknown") if isinstance(data, dict) else "unknown"
+                },
+                exc_info=True
+            )
             raise AvroSerializationError(error_msg) from e
     
     def serialize_processed_technical_indicators(self, data: Dict[str, Any]) -> bytes:
@@ -359,12 +440,31 @@ class AvroSerializer:
                     from datetime import datetime
                     dt = datetime.fromisoformat(transformed_data['producer_timestamp'].replace('Z', '+00:00'))
                     transformed_data['producer_timestamp'] = int(dt.timestamp() * 1000)
+                elif hasattr(transformed_data['producer_timestamp'], 'timestamp'):
+                    # Handle Spark timestamp objects
+                    transformed_data['producer_timestamp'] = int(transformed_data['producer_timestamp'].timestamp() * 1000)
             
             if 'processing_timestamp' in transformed_data and transformed_data['processing_timestamp']:
                 if isinstance(transformed_data['processing_timestamp'], str):
                     from datetime import datetime
                     dt = datetime.fromisoformat(transformed_data['processing_timestamp'].replace('Z', '+00:00'))
                     transformed_data['processing_timestamp'] = int(dt.timestamp() * 1000)
+                elif hasattr(transformed_data['processing_timestamp'], 'timestamp'):
+                    # Handle Spark timestamp objects
+                    transformed_data['processing_timestamp'] = int(transformed_data['processing_timestamp'].timestamp() * 1000)
+            
+            # Ensure all optional fields have proper values
+            for field in ['sma_5min', 'sma_20min', 'price_trend_5min', 'price_volatility', 'volume_ratio',
+                         'momentum_signal', 'volatility_level', 'trading_session', 'producer_timestamp']:
+                if field not in transformed_data:
+                    transformed_data[field] = None
+            
+            # Ensure required fields are present
+            if 'current_price' not in transformed_data:
+                raise ValueError("current_price is required but missing from data")
+            if 'processing_timestamp' not in transformed_data:
+                import time
+                transformed_data['processing_timestamp'] = int(time.time() * 1000)
             
             # Get schema and serialize
             schema = self._get_avro_schema("processed_technical_indicators")
@@ -387,7 +487,15 @@ class AvroSerializer:
             
         except Exception as e:
             error_msg = f"Failed to serialize processed technical indicators: {str(e)}"
-            logger.error(error_msg, exc_info=True)
+            logger.error(
+                "Processed technical indicators serialization error",
+                extra={
+                    "error": error_msg,
+                    "data_keys": list(data.keys()) if isinstance(data, dict) else "non-dict",
+                    "symbol": data.get("symbol", "unknown") if isinstance(data, dict) else "unknown"
+                },
+                exc_info=True
+            )
             raise AvroSerializationError(error_msg) from e
     
     def serialize_data_quality_alert(self, data: Dict[str, Any]) -> bytes:

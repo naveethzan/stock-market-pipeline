@@ -73,8 +73,10 @@ STOCK_QUOTE_SCHEMA = {
         },
         {
             "name": "timestamp",
-            "type": "long",
-            "logicalType": "timestamp-millis",
+            "type": {
+                "type": "long",
+                "logicalType": "timestamp-millis"
+            },
             "doc": "Timestamp when quote was retrieved (epoch millis)"
         },
         {
@@ -156,13 +158,37 @@ INTRADAY_DATA_POINT_SCHEMA = {
         },
         {
             "name": "request_timestamp",
-            "type": "long",
-            "logicalType": "timestamp-millis",
+            "type": {
+                "type": "long",
+                "logicalType": "timestamp-millis"
+            },
             "doc": "When this data was requested from API"
         },
         {
             "name": "producer_metadata",
-            "type": "ProducerMetadata",
+            "type": {
+                "type": "record",
+                "name": "ProducerMetadata",
+                "fields": [
+                    {
+                        "name": "producer_timestamp",
+                        "type": "string",
+                        "doc": "ISO timestamp when message was produced"
+                    },
+                    {
+                        "name": "producer_version",
+                        "type": "string",
+                        "default": "1.0.0",
+                        "doc": "Version of the producer"
+                    },
+                    {
+                        "name": "data_source",
+                        "type": "string",
+                        "default": "alpha_vantage",
+                        "doc": "Source of the data"
+                    }
+                ]
+            },
             "doc": "Metadata about message production"
         }
     ]

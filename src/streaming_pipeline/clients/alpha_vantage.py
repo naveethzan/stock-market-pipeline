@@ -226,6 +226,18 @@ class AlphaVantageClient:
                 )
                 raise AlphaVantageAPIError(f"Rate Limit: {error_msg}", response.status_code, data)
             
+            # Check for Information message (commonly used for rate limit messages)
+            if "Information" in data and ("rate limit" in data["Information"].lower() or "premium" in data["Information"].lower()):
+                error_msg = data["Information"]
+                logger.warning(
+                    "Alpha Vantage rate limit or subscription message",
+                    extra={
+                        "request_id": request_id,
+                        "information": error_msg
+                    }
+                )
+                raise AlphaVantageAPIError(f"API Limit: {error_msg}", response.status_code, data)
+            
             # Log successful response
             logger.debug(
                 "Alpha Vantage API request successful",
@@ -306,7 +318,9 @@ class AlphaVantageClient:
                     "Invalid quote response format",
                     extra={
                         "symbol": symbol,
-                        "response_keys": list(data.keys()) if isinstance(data, dict) else "non-dict"
+                        "response_keys": list(data.keys()) if isinstance(data, dict) else "non-dict",
+                        "full_response": json.dumps(data, indent=2) if isinstance(data, dict) and len(str(data)) < 2000 else "response_too_large",
+                        "response_preview": str(data)[:500] + "..." if len(str(data)) > 500 else str(data)
                     }
                 )
                 raise AlphaVantageAPIError(error_msg, response_data=data)

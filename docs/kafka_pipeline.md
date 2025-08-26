@@ -1,11 +1,11 @@
-# Kafka Stock Market Data Pipeline
+# Kafka Streaming Pipeline
 
-A complete data pipeline that fetches stock market data, streams it through Kafka, and stores it in AWS S3.
+A real-time streaming data pipeline that fetches stock market data from Alpha Vantage, streams it through Kafka, processes it with Spark, and stores it in S3 and Snowflake.
 
 ## 🏗️ Architecture
 
 ```
-Yahoo Finance/Alpha Vantage → Producer → Kafka → Consumer → AWS S3
+Alpha Vantage → Streaming Producer → Kafka → Spark Processor → S3/Snowflake
 ```
 
 ## 🚀 Quick Start
@@ -22,13 +22,19 @@ docker-compose ps
 
 ### 2. Set Environment Variables
 
-Create a `.env` file in the root directory:
+Copy and configure the environment template:
+
+```bash
+cp config/.env.streaming.template config/.env
+```
+
+Edit the `.env` file with your configuration:
 
 ```bash
 # Kafka Configuration
-KAFKA_BOOTSTRAP_SERVERS=localhost:29092
-KAFKA_BATCH_TOPIC=stock-data-batch
-KAFKA_STREAM_TOPIC=stock-data-stream
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+KAFKA_STOCK_QUOTES_TOPIC=stock-quotes-realtime
+KAFKA_STOCK_INTRADAY_TOPIC=stock-intraday-data
 
 # AWS S3 Configuration
 S3_BUCKET_NAME=your-stock-data-bucket
@@ -38,124 +44,118 @@ AWS_SECRET_ACCESS_KEY=your-secret-key
 
 # Alpha Vantage API (for real-time data)
 ALPHA_VANTAGE_API_KEY=your-api-key
+
+# Snowflake Configuration
+SNOWFLAKE_ACCOUNT=your-account
+SNOWFLAKE_USER=your-username
+SNOWFLAKE_PASSWORD=your-password
+SNOWFLAKE_DATABASE=your-database
+SNOWFLAKE_SCHEMA=your-schema
+SNOWFLAKE_WAREHOUSE=your-warehouse
 ```
 
-### 3. Test the Pipeline
+### 3. Start the Streaming Pipeline
 
 ```bash
-# Test all components
-python test_pipeline.py
+# Start all streaming services
+make -f Makefile.streaming-docker up
 
-# Run the complete demo
-python demo_pipeline.py
+# Run the streaming producer
+python -m streaming_pipeline.producers.example_usage
+
+# Run the streaming processor
+python -m streaming_pipeline.processors.example_usage
 ```
 
-## 📊 Pipeline Modes
+## 📊 Streaming Components
 
-### Producer Modes
+### Alpha Vantage Producer
 
-#### Batch Data Production
+Real-time stock data producer that fetches data from Alpha Vantage API:
+
 ```bash
-# Fetch historical data from Yahoo Finance
-python src/kafka_pipeline/main.py --mode batch --symbols AAPL GOOGL MSFT --period 1d
+# Run the producer with specific symbols
+python -m streaming_pipeline.producers.alpha_vantage_producer --symbols AAPL,GOOGL,MSFT
 ```
 
-#### Stream Data Production
+### Spark Structured Streaming Processor
+
+Processes streaming data in real-time:
+
 ```bash
-# Fetch real-time data from Alpha Vantage
-python src/kafka_pipeline/main.py --mode stream --symbols AAPL GOOGL MSFT --interval 60
+# Start the streaming processor
+python -m streaming_pipeline.processors.stream_processor --output-path /path/to/output
 ```
 
+### Kafka Connect Integration
 
+Automatically delivers processed data to S3 and Snowflake:
 
-### Consumer Modes
-
-#### Batch Consumer
 ```bash
-# Option 1: Via main pipeline
-python src/kafka_pipeline/main.py --mode batch-consumer --continuous
-
-# Option 2: Direct execution (recommended)
-python src/kafka_pipeline/consumers/batch_consumer.py --continuous
-
-# Consume limited messages
-python src/kafka_pipeline/consumers/batch_consumer.py --max-messages 100
-```
-
-#### Stream Consumer
-```bash
-# Option 1: Via main pipeline
-python src/kafka_pipeline/main.py --mode stream-consumer --continuous
-
-# Option 2: Direct execution (recommended)
-python src/kafka_pipeline/consumers/stream_consumer.py --continuous
-
-# Consume limited messages
-python src/kafka_pipeline/consumers/stream_consumer.py --max-messages 50
-```
-
-### Complete Pipeline
-
-#### End-to-End Data Flow
-```bash
-# Complete pipeline: produce → consume → S3
-python src/kafka_pipeline/main.py --mode complete --symbols AAPL GOOGL MSFT
+# Deploy Kafka Connect connectors
+./scripts/deploy-medallion-connectors.sh
 ```
 
 ## 🔧 Configuration
 
 ### Kafka Topics
-- **Batch Topic**: `stock-data-batch` (default)
-- **Stream Topic**: `stock-data-stream` (default)
+- **Real-time Quotes**: `stock-quotes-realtime`
+- **Intraday Data**: `stock-intraday-data`
+- **Processed Prices**: `processed-stock-prices`
+- **Trading Volume**: `processed-trading-volume`
 
-### S3 Storage Structure
+### S3 Storage Structure (Medallion Architecture)
 ```
 s3://your-bucket/
-├── raw-data/
-│   ├── batch/
-│   │   └── AAPL/2025/01/15/batch_AAPL_20250115_143022.json
-│   └── stream/
-│       └── AAPL/2025/01/15/stream_AAPL_20250115_143022.json
+├── bronze/stock-data/
+│   └── stock-quotes-realtime/year=2024/month=08/day=18/hour=14/
+├── silver/stock-data/
+│   └── processed-stock-prices/symbol=AAPL/date=2024-08-18/
+└── gold/dimensional/
+    ├── fact_stock_prices/
+    └── dim_company/
 ```
 
 ### Data Formats
 
-#### Batch Data (Yahoo Finance)
+#### Real-time Quote Data (Alpha Vantage)
 ```json
 {
-  "symbol": "AAPL",
-  "source": "yahoo_finance",
-  "timestamp": "2025-01-15T14:30:22",
-  "data_type": "batch",
-  "period": "1d",
-  "data": [
-    {
-      "Date": "2025-01-15",
-      "Open": 150.25,
-      "High": 152.80,
-      "Low": 149.90,
-      "Close": 151.75,
-      "Volume": 45678900
-    }
-  ]
+  "01. symbol": "AAPL",
+  "02. open": "150.0000",
+  "03. high": "152.5000",
+  "04. low": "149.0000",
+  "05. price": "151.2500",
+  "06. volume": "50000000",
+  "07. latest trading day": "2024-08-18",
+  "08. previous close": "150.5000",
+  "09. change": "0.7500",
+  "10. change percent": "0.4987%",
+  "_metadata": {
+    "symbol": "AAPL",
+    "request_timestamp": "2024-08-18T12:00:00+00:00",
+    "data_source": "alpha_vantage",
+    "function": "GLOBAL_QUOTE"
+  }
 }
 ```
 
-#### Stream Data (Alpha Vantage)
+#### Processed Data (Silver Layer)
 ```json
 {
   "symbol": "AAPL",
-  "source": "alpha_vantage",
-  "timestamp": "2025-01-15T14:30:22",
-  "data_type": "stream",
-  "data": {
-    "01. symbol": "AAPL",
-    "02. open": "150.25",
-    "03. high": "152.80",
-    "04. low": "149.90",
-    "05. price": "151.75",
-    "06. volume": "45678900"
-  }
+  "date": "2024-08-18",
+  "time": "09:30:00",
+  "open_price": 150.00,
+  "high_price": 152.50,
+  "low_price": 149.75,
+  "close_price": 151.25,
+  "volume": 1500000,
+  "sma_20": 150.85,
+  "sma_50": 149.32,
+  "rsi_14": 65.4,
+  "processing_timestamp": 1692345600000,
+  "data_quality_score": 0.98
 }
 ```
 
@@ -163,39 +163,47 @@ s3://your-bucket/
 
 ### Component Testing
 ```bash
-# Test all pipeline components
-python test_pipeline.py
+# Test Alpha Vantage producer
+python src/streaming_pipeline/producers/test_data_producer.py
+
+# Test Spark processor
+python src/streaming_pipeline/processors/test_stream_processor.py
+
+# Test Kafka Connect setup
+python scripts/test-kafka-connect-setup.py
 ```
 
-### Demo Pipeline
+### Integration Testing
 ```bash
-# Run complete end-to-end demo
-python demo_pipeline.py
+# Run producer integration test
+python src/streaming_pipeline/producers/integration_test.py
+
+# Test end-to-end pipeline
+python test_streaming_validation.py
 ```
 
 ### Manual Testing
 ```bash
 # Test producer only
-python src/kafka_pipeline/main.py --mode batch --symbols AAPL --period 1d
+python -m streaming_pipeline.producers.example_usage
 
-# Test consumer only (in another terminal)
-python src/kafka_pipeline/main.py --mode batch-consumer --continuous
+# Test processor only
+python -m streaming_pipeline.processors.example_usage /tmp/output
 ```
 
 ## 📁 File Structure
 
 ```
-src/kafka_pipeline/
+src/streaming_pipeline/
 ├── __init__.py
-├── config.py              # Configuration management
-├── main.py               # Main pipeline entry point
-├── producers/
-│   ├── batch_producer.py    # Yahoo Finance batch producer
-│   └── stream_producer.py   # Alpha Vantage stream producer
-└── consumers/
-    ├── base_consumer.py     # Base consumer with S3 integration
-    ├── batch_consumer.py    # Batch data consumer (runnable independently)
-    └── stream_consumer.py   # Stream data consumer (runnable independently)
+├── config/                 # Configuration management
+├── clients/               # Alpha Vantage API client
+├── producers/             # Kafka producers
+├── processors/            # Spark streaming processors
+├── models/                # Data models and transformations
+├── warehouse/             # Snowflake integration
+├── monitoring/            # Logging and metrics
+└── schemas/               # Avro schemas
 ```
 
 ## 🔍 Monitoring
@@ -256,13 +264,8 @@ python src/kafka_pipeline/main.py --mode batch-consumer --continuous
 ### Debug Mode
 ```bash
 # Enable debug logging
-export PYTHONPATH=src
-python -c "
-import logging
-logging.basicConfig(level=logging.DEBUG)
-from kafka_pipeline.main import run_batch_pipeline
-run_batch_pipeline(['AAPL'], '1d')
-"
+export LOG_LEVEL=DEBUG
+python -m streaming_pipeline.producers.example_usage
 ```
 
 ## 🔄 Data Flow Verification
@@ -273,38 +276,41 @@ run_batch_pipeline(['AAPL'], '1d')
 docker exec -it kafka kafka-topics --bootstrap-server localhost:9092 --list
 
 # Check topic details
-docker exec -it kafka kafka-topics --bootstrap-server localhost:9092 --describe --topic stock-data-batch
+docker exec -it kafka kafka-topics --bootstrap-server localhost:9092 --describe --topic stock-quotes-realtime
 ```
 
 ### 2. Monitor Messages
 ```bash
 # Consume messages from topic
-docker exec -it kafka kafka-console-consumer --bootstrap-server localhost:9092 --topic stock-data-batch --from-beginning
+docker exec -it kafka kafka-console-consumer --bootstrap-server localhost:9092 --topic stock-quotes-realtime --from-beginning
 ```
 
-### 3. Verify S3 Storage
+### 3. Verify S3 Storage (Medallion Architecture)
 ```bash
-# List S3 objects
-aws s3 ls s3://your-bucket/raw-data/batch/ --recursive
+# List Bronze layer objects
+aws s3 ls s3://your-bucket/bronze/stock-data/ --recursive
 
-# Download and inspect a file
-aws s3 cp s3://your-bucket/raw-data/batch/AAPL/2025/01/15/batch_AAPL_20250115_143022.json ./sample_data.json
-cat sample_data.json
+# List Silver layer objects
+aws s3 ls s3://your-bucket/silver/stock-data/ --recursive
+
+# Check Snowflake data loading
+python scripts/test-gold-connector.py
 ```
 
 ## 🎯 Next Steps
 
-1. **Add Data Processing**: Implement data transformation and analytics
-2. **Monitoring**: Add metrics collection and alerting
-3. **Scaling**: Implement multiple consumer instances
-4. **Error Handling**: Add dead letter queues and retry mechanisms
-5. **Data Quality**: Implement data validation and quality checks
+1. **Monitoring**: Enhanced metrics collection and alerting with Prometheus/Grafana
+2. **Scaling**: Implement horizontal scaling for producers and processors
+3. **Data Quality**: Advanced data validation and quality monitoring
+4. **Machine Learning**: Add real-time feature engineering and model inference
+5. **Cost Optimization**: Implement data lifecycle policies and resource optimization
 
 ## 📚 Dependencies
 
-- **Kafka**: `kafka-python`
-- **Data Sources**: `yfinance`, `alpha_vantage`
-- **Storage**: `boto3` (AWS S3)
+- **Streaming**: `pyspark`, `confluent-kafka`
+- **Data Sources**: `alpha_vantage`
+- **Storage**: `boto3` (AWS S3), `snowflake-connector-python`
+- **Monitoring**: `prometheus-client`, `structlog`
 - **Utilities**: `pandas`, `requests`, `python-dotenv`
 
 ## 🤝 Contributing

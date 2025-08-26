@@ -49,12 +49,7 @@ The streaming pipeline consists of the following components:
 
 4. **Start services**:
    ```bash
-   make docker-up
-   ```
-   
-   Or to start only streaming-related services:
-   ```bash
-   make docker-streaming-only
+   make -f Makefile.streaming-docker up
    ```
 
 5. **Kafka topics are created automatically** by the `kafka-topics-init` service
@@ -97,7 +92,7 @@ The pipeline uses environment variables for configuration. Key variables include
 
 ### Configuration Files
 
-- `config/streaming_pipeline.env.template`: Environment variable template
+- `config/.env.streaming.template`: Environment variable template
 - `config/logging.yaml`: Logging configuration
 - `config/prometheus.yml`: Prometheus monitoring configuration
 
@@ -124,7 +119,7 @@ src/streaming_pipeline/
     └── (future utility modules)
 
 config/
-├── streaming_pipeline.env.template
+├── .env.streaming.template
 ├── logging.yaml
 └── prometheus.yml
 
@@ -145,9 +140,7 @@ docker/
 
 2. **Start development services**:
    ```bash
-   make docker-up  # Start all services
-   # OR
-   make docker-streaming-only  # Start only streaming services
+   make -f Makefile.streaming-docker up
    ```
 
 3. **Run tests**:
@@ -165,22 +158,22 @@ docker/
 
 1. **Build images**:
    ```bash
-   make docker-build
+   make -f Makefile.streaming-docker build
    ```
 
 2. **Start all services**:
    ```bash
-   make docker-up
+   make -f Makefile.streaming-docker up
    ```
 
 3. **View logs**:
    ```bash
-   make docker-logs
+   make -f Makefile.streaming-docker logs
    ```
 
 4. **Stop services**:
    ```bash
-   make docker-down
+   make -f Makefile.streaming-docker down
    ```
 
 ## Monitoring and Observability

@@ -5,15 +5,33 @@
 
 set -e
 
+# Load environment variables from .env files
+echo "📁 Loading environment variables..."
+if [ -f ".env" ]; then
+    echo "   Loading from .env..."
+    export $(grep -v '^#' .env | xargs)
+fi
+
+if [ -f "config/.env" ]; then
+    echo "   Loading from config/.env..."
+    export $(grep -v '^#' config/.env | xargs)
+fi
+
+echo "✅ Environment variables loaded"
+echo "   SNOWFLAKE_ACCOUNT: ${SNOWFLAKE_ACCOUNT:-'not set'}"
+echo "   SNOWFLAKE_USER: ${SNOWFLAKE_USER:-'not set'}"
+echo "   SNOWFLAKE_DATABASE: ${SNOWFLAKE_DATABASE:-'not set'}"
+echo ""
+
 CONNECT_URL=${CONNECT_URL:-http://localhost:8083}
 CONFIG_FILE="config/kafka-connect/connectors/gold-snowflake-connector.json"
 
-echo "Deploying Gold Layer Snowflake Connector..."
-echo "=========================================="
+echo "🥇 Deploying Gold Layer Snowflake Connector..."
+echo "==============================================="
 
 # Check if Kafka Connect is ready
 echo "Checking Kafka Connect availability..."
-python scripts/kafka-connect-manager.py --connect-url $CONNECT_URL wait --timeout 60
+python3 scripts/kafka-connect-manager.py --connect-url $CONNECT_URL wait --timeout 60
 
 if [ $? -ne 0 ]; then
     echo "Error: Kafka Connect is not available"
@@ -74,10 +92,10 @@ echo ""
 
 # Create a temporary config file with environment variables substituted
 TEMP_CONFIG=$(mktemp)
-envsubst < $CONFIG_FILE > $TEMP_CONFIG
+python3 scripts/env_substitute.py $CONFIG_FILE $TEMP_CONFIG
 
 echo "Creating Gold Snowflake connector..."
-python scripts/kafka-connect-manager.py --connect-url $CONNECT_URL create $TEMP_CONFIG
+python3 scripts/kafka-connect-manager.py --connect-url $CONNECT_URL create $TEMP_CONFIG
 
 if [ $? -eq 0 ]; then
     echo "✓ Gold Snowflake connector created successfully"
@@ -87,7 +105,7 @@ if [ $? -eq 0 ]; then
     
     # Check connector status
     echo "Checking connector status..."
-    python scripts/kafka-connect-manager.py --connect-url $CONNECT_URL status gold-snowflake-sink-connector
+    python3 scripts/kafka-connect-manager.py --connect-url $CONNECT_URL status gold-snowflake-sink-connector
     
     echo ""
     echo "Gold Layer Snowflake Connector deployed successfully!"
@@ -101,7 +119,7 @@ if [ $? -eq 0 ]; then
     echo "Buffer settings: 1,000 records or 5MB or 60 seconds"
     echo ""
     echo "To test the connector, run:"
-    echo "  python scripts/test-gold-connector.py"
+    echo "  python3 scripts/test-gold-connector.py"
     echo ""
     echo "To monitor data loading:"
     echo "  SELECT COUNT(*) FROM FACT_STOCK_PRICES_STAGING;"

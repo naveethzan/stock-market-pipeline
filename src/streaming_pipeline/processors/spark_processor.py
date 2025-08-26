@@ -15,11 +15,11 @@ from typing import Optional, Dict, Any
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 import uvicorn
 
 from ..config.settings import ConfigManager
-from ..config.loader import load_config
+from ..config.loader import initialize_configuration
 from .stream_processor import StreamProcessor, StreamProcessorError
 
 
@@ -211,7 +211,9 @@ class ProcessorService:
         healthy_queries = 0
         
         if self.processor:
-            for query_name in self.processor.active_queries.keys():
+            # Create a copy of keys to avoid RuntimeError during iteration
+            query_names = list(self.processor.active_queries.keys())
+            for query_name in query_names:
                 status = self.processor.get_query_status(query_name)
                 query_statuses[query_name] = status
                 active_queries += 1
@@ -269,7 +271,74 @@ async def health_check():
 
 @app.get("/metrics")
 async def get_metrics():
-    """Get detailed processor metrics."""
+    """Get detailed processor metrics in Prometheus format."""
+    global processor_service
+    
+    if not processor_service:
+        raise HTTPException(status_code=503, detail="Processor service not initialized")
+    
+    health_status = processor_service.get_health_status()
+    
+    # Convert to Prometheus format
+    prometheus_metrics = []
+    
+    # Service health
+    is_healthy = 1 if health_status.get("status") == "healthy" else 0
+    prometheus_metrics.append(f"# HELP spark_processor_service_healthy Service health status")
+    prometheus_metrics.append(f"# TYPE spark_processor_service_healthy gauge")
+    prometheus_metrics.append(f'spark_processor_service_healthy{{job="streaming-processor"}} {is_healthy}')
+    
+    # Query metrics
+    active_queries = health_status.get("active_queries", 0)
+    healthy_queries = health_status.get("healthy_queries", 0)
+    
+    prometheus_metrics.append(f"# HELP spark_processor_active_queries_total Total number of active streaming queries")
+    prometheus_metrics.append(f"# TYPE spark_processor_active_queries_total gauge")
+    prometheus_metrics.append(f'spark_processor_active_queries_total{{job="streaming-processor"}} {active_queries}')
+    
+    prometheus_metrics.append(f"# HELP spark_processor_healthy_queries_total Number of healthy streaming queries")
+    prometheus_metrics.append(f"# TYPE spark_processor_healthy_queries_total gauge")
+    prometheus_metrics.append(f'spark_processor_healthy_queries_total{{job="streaming-processor"}} {healthy_queries}')
+    
+    # Individual query metrics
+    query_statuses = health_status.get("query_statuses", {})
+    for query_name, query_info in query_statuses.items():
+        # Input rate
+        input_rate = query_info.get("input_rows_per_second", 0)
+        prometheus_metrics.append(f"# HELP spark_processor_input_rows_per_second Input rows per second for query")
+        prometheus_metrics.append(f"# TYPE spark_processor_input_rows_per_second gauge")
+        prometheus_metrics.append(f'spark_processor_input_rows_per_second{{job="streaming-processor",query="{query_name}"}} {input_rate}')
+        
+        # Processed rate
+        processed_rate = query_info.get("processed_rows_per_second", 0)
+        prometheus_metrics.append(f"# HELP spark_processor_processed_rows_per_second Processed rows per second for query")
+        prometheus_metrics.append(f"# TYPE spark_processor_processed_rows_per_second gauge")
+        prometheus_metrics.append(f'spark_processor_processed_rows_per_second{{job="streaming-processor",query="{query_name}"}} {processed_rate}')
+        
+        # Batch ID
+        batch_id = query_info.get("batch_id", -1)
+        prometheus_metrics.append(f"# HELP spark_processor_batch_id Current batch ID for query")
+        prometheus_metrics.append(f"# TYPE spark_processor_batch_id gauge")
+        prometheus_metrics.append(f'spark_processor_batch_id{{job="streaming-processor",query="{query_name}"}} {batch_id}')
+        
+        # Is active
+        is_active = 1 if query_info.get("is_active", False) else 0
+        prometheus_metrics.append(f"# HELP spark_processor_query_active Query active status")
+        prometheus_metrics.append(f"# TYPE spark_processor_query_active gauge")
+        prometheus_metrics.append(f'spark_processor_query_active{{job="streaming-processor",query="{query_name}"}} {is_active}')
+    
+    # Uptime
+    uptime = health_status.get("uptime_seconds", 0)
+    prometheus_metrics.append(f"# HELP spark_processor_uptime_seconds Service uptime in seconds")
+    prometheus_metrics.append(f"# TYPE spark_processor_uptime_seconds counter")
+    prometheus_metrics.append(f'spark_processor_uptime_seconds{{job="streaming-processor"}} {uptime}')
+    
+    return Response(content="\n".join(prometheus_metrics) + "\n", media_type="text/plain")
+
+
+@app.get("/metrics/json")
+async def get_metrics_json():
+    """Get detailed processor metrics in JSON format."""
     global processor_service
     
     if not processor_service:
@@ -287,7 +356,9 @@ async def get_query_status():
         raise HTTPException(status_code=503, detail="Processor not available")
     
     query_statuses = {}
-    for query_name in processor_service.processor.active_queries.keys():
+    # Create a copy of keys to avoid RuntimeError during iteration
+    query_names = list(processor_service.processor.active_queries.keys())
+    for query_name in query_names:
         query_statuses[query_name] = processor_service.processor.get_query_status(query_name)
     
     return query_statuses
@@ -363,7 +434,7 @@ def main():
     
     try:
         # Load configuration
-        config = load_config()
+        config = initialize_configuration()
         logger.info("Configuration loaded successfully")
         
         # Initialize processor service

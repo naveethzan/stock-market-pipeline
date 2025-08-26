@@ -1,0 +1,98 @@
+{
+  "Name": "stock-market-streaming-pipeline",
+  "ReleaseLabel": "emr-6.15.0",
+  "Applications": [
+    {
+      "Name": "Spark"
+    },
+    {
+      "Name": "Hadoop"
+    }
+  ],
+  "Configurations": [
+    {
+      "Classification": "spark-defaults",
+      "Properties": {
+        "spark.serializer": "org.apache.spark.serializer.KryoSerializer",
+        "spark.sql.adaptive.enabled": "true",
+        "spark.sql.adaptive.coalescePartitions.enabled": "true",
+        "spark.sql.streaming.checkpointLocation.deleteOnExit": "true",
+        "spark.sql.streaming.forceDeleteTempCheckpointLocation": "true",
+        "spark.default.parallelism": "8",
+        "spark.sql.shuffle.partitions": "8"
+      }
+    },
+    {
+      "Classification": "spark-env",
+      "Properties": {},
+      "Configurations": [
+        {
+          "Classification": "export",
+          "Properties": {
+            "SPARK_EXECUTOR_CORES": "2",
+            "SPARK_EXECUTOR_MEMORY": "4g",
+            "SPARK_DRIVER_MEMORY": "2g"
+          }
+        }
+      ]
+    }
+  ],
+  "Instances": {
+    "InstanceGroups": [
+      {
+        "Name": "Master",
+        "Market": "ON_DEMAND",
+        "InstanceRole": "MASTER",
+        "InstanceType": "m5.xlarge",
+        "InstanceCount": 1
+      },
+      {
+        "Name": "Core",
+        "Market": "ON_DEMAND", 
+        "InstanceRole": "CORE",
+        "InstanceType": "m5.xlarge",
+        "InstanceCount": 2,
+        "EbsConfiguration": {
+          "EbsBlockDeviceConfigs": [
+            {
+              "VolumeSpecification": {
+                "SizeInGB": 32,
+                "VolumeType": "gp2"
+              },
+              "VolumesPerInstance": 1
+            }
+          ]
+        }
+      }
+    ],
+    "KeepJobFlowAliveWhenNoSteps": true,
+    "TerminationProtected": false
+  },
+  "ServiceRole": "EMR_DefaultRole",
+  "JobFlowRole": "EMR_EC2_DefaultRole",
+  "LogUri": "s3://your-emr-logs-bucket/stock-market-pipeline/",
+  "BootstrapActions": [
+    {
+      "Name": "Install Python Dependencies",
+      "ScriptBootstrapAction": {
+        "Path": "s3://your-scripts-bucket/bootstrap/install-dependencies.sh"
+      }
+    }
+  ],
+  "Steps": [
+    {
+      "Name": "Submit Streaming Application",
+      "ActionOnFailure": "CONTINUE",
+      "HadoopJarStep": {
+        "Jar": "command-runner.jar",
+        "Args": [
+          "spark-submit",
+          "--deploy-mode", "cluster",
+          "--master", "yarn",
+          "--conf", "spark.jars.packages=org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,org.apache.spark:spark-avro_2.12:3.5.1",
+          "s3://your-code-bucket/streaming_pipeline/processors/stream_processor.py"
+        ]
+      }
+    }
+  ]
+}

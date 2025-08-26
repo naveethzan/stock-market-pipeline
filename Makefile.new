@@ -1,0 +1,992 @@
+# Stock Market Streaming Pipeline - Spark Cluster Mode
+
+.PHONY: help setup setup-mock start start-mock stop status logs clean clean-dev-data restart deploy-medallion
+
+# Default target - shows clear workflow
+help:
+	@echo "Stock Market Streaming Pipeline - Spark Cluster Mode:"
+	@echo "==================================================="
+	@echo ""
+	@echo "🔧 SETUP (Run once):"
+	@echo "  setup              - Setup Spark cluster for production mode"
+	@echo "  setup-mock         - Setup Spark cluster for development mode"
+	@echo ""
+	@echo "⚡ CLUSTER MODES (Distributed Processing):"
+	@echo "  start              - Start cluster with REAL API data"
+	@echo "  start-mock         - Start cluster with MOCK data (recommended)"
+	@echo ""
+	@echo "🔍 MONITORING:"
+	@echo "  status             - Check cluster health and resources"
+	@echo "  logs               - Show real-time streaming logs"
+	@echo ""
+	@echo "🛑 CONTROL:"
+	@echo "  stop               - Stop cluster services"
+	@echo "  restart            - Restart cluster in current mode"
+	@echo ""
+	@echo "🧹 CLEANUP:"
+	@echo "  clean              - Stop and clean everything"
+	@echo "  clean-dev-data     - Clean data for fresh start"
+	@echo ""
+	@echo "📊 MEDALLION ARCHITECTURE:"
+	@echo "  deploy-medallion   - Deploy Bronze/Silver/Gold connectors"
+	@echo "                       (Automatically called during start/start-mock)"
+	@echo ""
+	@echo "💡 Quick Start:"
+	@echo "  Development: make setup-mock && make start-mock"
+	@echo "  Production:  make setup && make start"
+	@echo ""
+	@echo "📊 Cluster Architecture:"
+	@echo "  🏗️  Master: 1x Spark Master (job coordination)"
+	@echo "  👷 Workers: 2x Spark Workers (distributed processing)"
+	@echo "  🔄 Driver: Streaming processor (job submission)"
+	@echo "  💾 Memory: ~6GB distributed across cluster"
+	@echo ""
+	@echo "🌐 Monitoring URLs:"
+	@echo "  Spark Master UI: http://localhost:8080"
+	@echo "  Worker 1 UI:     http://localhost:8181"
+	@echo "  Worker 2 UI:     http://localhost:8182"
+	@echo "  Kafka UI:        http://localhost:8090"
+
+# CLUSTER SETUP - Production focused
+setup:
+	@echo "⚡ Setting up Spark Cluster Mode (Production)..."
+	@echo "Distributed processing with real Alpha Vantage API"
+	@echo ""
+	@echo "📁 Creating necessary directories..."
+	@mkdir -p config src/spark/jobs data/spark logs/kafka-connect checkpoints
+	@mkdir -p spark-cluster emr scripts
+	@echo "📦 Directories created"
+	@echo ""
+	@echo "🐍 Setting up Python environment..."
+	@python3 -m venv venv 2>/dev/null || echo "📦 Virtual environment already exists"
+	@if [ -f requirements-streaming.txt ]; then \
+		./venv/bin/pip install -r requirements-streaming.txt || echo "⚠️  Some packages may have failed to install"; \
+		echo "📦 Python dependencies installed"; \
+	else \
+		echo "⚠️  requirements-streaming.txt not found"; \
+	fi
+	@echo ""
+	@echo "⚙️  Creating cluster configuration..."
+	@if [ ! -f config/.env ]; then \
+		echo "# Spark Cluster Production Configuration" > config/.env; \
+		echo "ALPHA_VANTAGE_API_KEY=your_api_key_here" >> config/.env; \
+		echo "ALPHA_VANTAGE_MOCK_MODE=false" >> config/.env; \
+		echo "PRODUCTION_INTERVAL_SECONDS=60" >> config/.env; \
+		echo "STOCK_SYMBOLS=AAPL,GOOGL,MSFT,AMZN,TSLA" >> config/.env; \
+		echo "LOG_LEVEL=INFO" >> config/.env; \
+		echo "✅ Created config/.env - EDIT WITH YOUR API KEY"; \
+	else \
+		echo "📝 config/.env already exists"; \
+	fi
+	@echo ""
+	@echo "🔧 Making startup script executable..."
+	@chmod +x scripts/start-cluster.sh
+	@echo "✅ Startup script is executable"
+	@echo ""
+	@echo "🐳 Building Docker containers..."
+	@echo "🔧 Building Spark containers with health check fix (curl installed)..."
+	@docker-compose -f docker-compose.cluster.yml build spark-master spark-worker-1 spark-worker-2
+	@docker-compose build --parallel
+	@echo "✅ Docker containers built successfully"
+	@echo ""
+	@echo "🎉 Spark Cluster production setup complete!"
+	@echo ""
+	@echo "🔑 IMPORTANT: Configure your API key:"
+	@echo "  1. Edit config/.env file"
+	@echo "  2. Replace 'your_api_key_here' with your actual Alpha Vantage API key"
+	@echo "  3. Get free API key at: https://www.alphavantage.co/support/#api-key"
+	@echo ""
+	@echo "🚀 After configuring API key:"
+	@echo "  make start    - Start cluster with real API data"
+	@echo "  make status   - Check cluster health"
+	@echo "  make logs     - View real-time logs"
+
+# CLUSTER SETUP - Development focused
+setup-mock:
+	@echo "⚡ Setting up Spark Cluster Mode (Development)..."
+	@echo "Distributed processing with unlimited realistic mock data"
+	@echo "Perfect for development, testing, and demonstrations"
+	@echo ""
+	@echo "📁 Creating necessary directories..."
+	@mkdir -p config src/spark/jobs data/spark logs/kafka-connect checkpoints
+	@mkdir -p spark-cluster emr scripts
+	@echo "📦 Directories created"
+	@echo ""
+	@echo "🐍 Setting up Python environment..."
+	@python3 -m venv venv 2>/dev/null || echo "📦 Virtual environment already exists"
+	@if [ -f requirements-streaming.txt ]; then \
+		./venv/bin/pip install -r requirements-streaming.txt || echo "⚠️  Some packages may have failed to install"; \
+		echo "📦 Python dependencies installed"; \
+	else \
+		echo "⚠️  requirements-streaming.txt not found"; \
+	fi
+	@echo ""
+	@echo "⚙️  Creating cluster mock configuration..."
+	@if [ ! -f .env.mock ]; then \
+		echo "# Spark Cluster Mock Configuration for Development" > .env.mock; \
+		echo "ALPHA_VANTAGE_API_KEY=mock_api_key_for_development" >> .env.mock; \
+		echo "ALPHA_VANTAGE_MOCK_MODE=true" >> .env.mock; \
+		echo "PRODUCTION_INTERVAL_SECONDS=60" >> .env.mock; \
+		echo "STOCK_SYMBOLS=AAPL,GOOGL,MSFT,AMZN,TSLA,META,NVDA,NFLX,AMD,INTC" >> .env.mock; \
+		echo "LOG_LEVEL=INFO" >> .env.mock; \
+		echo "✅ Created .env.mock for cluster development mode"; \
+	else \
+		echo "📝 .env.mock already exists"; \
+	fi
+	@echo ""
+	@echo "🔧 Making startup script executable..."
+	@chmod +x scripts/start-cluster.sh
+	@echo "✅ Startup script is executable"
+	@echo ""
+	@echo "🐳 Building Docker containers..."
+	@echo "🔧 Building Spark containers with health check fix (curl installed)..."
+	@docker-compose -f docker-compose.cluster.yml build spark-master spark-worker-1 spark-worker-2
+	@docker-compose build --parallel
+	@echo "✅ Docker containers built successfully"
+	@echo ""
+	@echo "🎉 Spark Cluster mock mode setup complete!"
+	@echo ""
+	@echo "🚀 Ready to start:"
+	@echo "  make start-mock   - Start cluster with mock data"
+	@echo "  make status       - Check cluster health"
+	@echo "  make logs         - View real-time logs"
+	@echo ""
+	@echo "🎭 Cluster Mock Benefits:"
+	@echo "  ✅ No API key required"
+	@echo "  ✅ Unlimited realistic data"
+	@echo "  ✅ Distributed processing across workers"
+	@echo "  ✅ Perfect for testing parallel queries"
+
+# CLUSTER OPERATIONS
+start:
+	@echo "⚡ Starting Spark Cluster with REAL API DATA..."
+	@echo "Distributed processing with real Alpha Vantage API"
+	@echo "Production-grade cluster for handling multiple streaming queries"
+	@echo ""
+	@if [ -z "$$ALPHA_VANTAGE_API_KEY" ] && [ ! -f config/.env ]; then \
+		echo "❌ Error: ALPHA_VANTAGE_API_KEY not set and config/.env not found"; \
+		echo "Please set your API key: export ALPHA_VANTAGE_API_KEY=your_key"; \
+		echo "Or run: make setup"; \
+		exit 1; \
+	fi
+	@echo "🧹 Cleaning previous data for fresh start..."
+	@$(MAKE) --no-print-directory clean-dev-data
+	@mkdir -p src/spark/jobs data/spark logs/kafka-connect checkpoints
+	@echo "🚀 Starting cluster infrastructure with automated script..."
+	@# Export environment variables from config/.env
+	@set -a && [ -f config/.env ] && . config/.env && set +a && \
+	 ALPHA_VANTAGE_MOCK_MODE=false \
+	 PRODUCTION_INTERVAL_SECONDS=60 \
+	 LOG_LEVEL=INFO \
+	 ./scripts/start-cluster.sh
+	@echo "📊 Deploying Medallion Architecture Connectors..."
+	@$(MAKE) --no-print-directory deploy-medallion
+	@echo ""
+	@echo "✅ Spark Cluster started with REAL API DATA!"
+	@echo ""
+	@echo "📊 Cluster Architecture:"
+	@echo "  🏗️  Master Node:  1x Spark Master (coordination)"
+	@echo "  👷 Worker Nodes: 2x Spark Workers (distributed processing)"
+	@echo "  🔄 Driver:       Streaming processor (job submission)"
+	@echo "  💾 Total RAM:    ~6GB distributed across cluster"
+	@echo ""
+	@echo "Check status: make status"
+
+start-mock:
+	@echo "⚡ Starting Spark Cluster with MOCK MODE..."
+	@echo "Distributed processing with unlimited realistic mock data"
+	@echo "Perfect for testing parallel streaming queries without resource conflicts"
+	@echo ""
+	@echo "🧹 Cleaning previous data for fresh start..."
+	@$(MAKE) --no-print-directory clean-dev-data
+	@mkdir -p src/spark/jobs data/spark logs/kafka-connect checkpoints
+	@echo "🚀 Starting cluster infrastructure with automated script..."
+	@# Export environment variables from config/.env
+	@set -a && [ -f config/.env ] && . config/.env && set +a && \
+	 ALPHA_VANTAGE_MOCK_MODE=true \
+	 ALPHA_VANTAGE_API_KEY=mock_api_key_for_development \
+	 PRODUCTION_INTERVAL_SECONDS=60 \
+	 STOCK_SYMBOLS="AAPL,GOOGL,MSFT,AMZN,TSLA,META,NVDA,NFLX,AMD,INTC" \
+	 LOG_LEVEL=INFO \
+	 ./scripts/start-cluster.sh
+	@echo "📊 Deploying Medallion Architecture Connectors..."
+	@$(MAKE) --no-print-directory deploy-medallion
+	@echo ""
+	@echo "✅ Spark Cluster started in MOCK MODE!"
+	@echo ""
+	@echo "📊 Cluster Architecture:"
+	@echo "  🏗️  Master Node:  1x Spark Master (coordination)"
+	@echo "  👷 Worker Nodes: 2x Spark Workers (distributed processing)"
+	@echo "  🔄 Driver:       Streaming processor (job submission)"
+	@echo "  💾 Total RAM:    ~6GB distributed across cluster"
+	@echo ""
+	@echo "📊 Monitoring:"
+	@echo "  make status - Check cluster health"
+	@echo "  make logs   - View streaming logs"
+	@echo "🛑 To stop: make stop"
+
+stop:
+	@echo "🛑 Stopping Spark Cluster..."
+	@docker-compose -f docker-compose.yaml -f docker-compose.cluster.yml down
+	@echo "✅ Spark Cluster stopped"
+	@echo "💡 To restart: make start-mock or make start"
+
+restart: stop start-mock
+
+# MONITORING
+status:
+	@echo "📊 Spark Cluster Status:"
+	@echo "========================"
+	@echo ""
+	@echo "🏗️  Master Node:"
+	@if docker ps --format "table {{.Names}}\t{{.Status}}" | grep -q "spark-master.*Up"; then \
+		echo "  ✅ Spark Master: Running"; \
+		curl -s http://localhost:8080 >/dev/null && echo "  ✅ Master UI: Accessible (http://localhost:8080)" || echo "  ⚠️  Master UI: Not ready yet"; \
+	else \
+		echo "  ❌ Spark Master: Not running"; \
+	fi
+	@echo ""
+	@echo "👷 Worker Nodes:"
+	@if docker ps --format "table {{.Names}}\t{{.Status}}" | grep -q "spark-worker-1.*Up"; then \
+		echo "  ✅ Worker 1: Running"; \
+		curl -s http://localhost:8181 >/dev/null && echo "  ✅ Worker 1 UI: Accessible (http://localhost:8181)" || echo "  ⚠️  Worker 1 UI: Not ready yet"; \
+	else \
+		echo "  ❌ Worker 1: Not running"; \
+	fi
+	@if docker ps --format "table {{.Names}}\t{{.Status}}" | grep -q "spark-worker-2.*Up"; then \
+		echo "  ✅ Worker 2: Running"; \
+		curl -s http://localhost:8182 >/dev/null && echo "  ✅ Worker 2 UI: Accessible (http://localhost:8182)" || echo "  ⚠️  Worker 2 UI: Not ready yet"; \
+	else \
+		echo "  ❌ Worker 2: Not running"; \
+	fi
+	@echo ""
+	@echo "🔄 Streaming Services:"
+	@curl -s http://localhost:8081/health 2>/dev/null | jq -r '.status // "❌ Not responding"' | sed 's/^/Producer: /'
+	@curl -s http://localhost:8082/health 2>/dev/null | jq -r '.status // "❌ Not responding"' | sed 's/^/Processor: /'
+	@echo ""
+	@echo "📊 Cluster Resources:"
+	@echo "  Total Workers: 2"
+	@echo "  Total Cores: 2 (1 per worker)"
+	@echo "  Total Memory: 2GB (1GB per worker)"
+	@echo "  Master Memory: 512MB"
+	@echo ""
+	@echo "🌐 Monitoring URLs:"
+	@echo "  Spark Master UI: http://localhost:8080"
+	@echo "  Worker 1 UI:     http://localhost:8181"
+	@echo "  Worker 2 UI:     http://localhost:8182"
+	@echo "  Kafka UI:        http://localhost:8090"
+
+logs:
+	@docker logs streaming-processor -f
+
+# CLEANUP
+clean:
+	@echo "🧹 Cleaning up cluster..."
+	@docker-compose -f docker-compose.yaml -f docker-compose.cluster.yml down -v --remove-orphans
+	@echo "✅ Cleanup complete!"
+
+# Clean development data for fresh starts
+clean-dev-data:
+	@echo "🧹 Cleaning development data for fresh start..."
+	@# Stop and remove any running containers completely
+	@docker-compose -f docker-compose.yaml -f docker-compose.cluster.yml down --remove-orphans 2>/dev/null || true
+	@# Force remove any lingering containers to ensure clean state
+	@docker container prune -f 2>/dev/null || true
+	@# Clean logs thoroughly
+	@rm -f logs/*.log logs/*.json 2>/dev/null || true
+	@rm -rf logs/kafka-connect/* 2>/dev/null || true
+	@# Clean Spark checkpoints
+	@rm -rf checkpoints/* 2>/dev/null || true
+	@# Clean any temporary data
+	@rm -rf data/spark/temp/* 2>/dev/null || true
+	@# Clean Kafka data volumes (this will remove all topics and messages)
+	@docker volume prune -f 2>/dev/null || true
+	@echo "✅ Development data cleaned - ready for fresh start!"
+
+# TROUBLESHOOTING
+troubleshoot:
+	@echo "🔧 Troubleshooting pipeline..."
+	@echo "=== Container Status ==="
+	@docker-compose ps
+	@echo ""
+	@echo "=== Spark Master Logs ==="
+	@docker-compose logs --tail=20 spark-master
+	@echo ""
+	@echo "=== Spark Worker Logs ==="
+	@docker-compose logs --tail=20 spark-worker
+	@echo ""
+	@echo "=== Manual Health Check ==="
+	@echo "Testing Spark Master UI..."
+	@curl -s http://localhost:18080 >/dev/null && echo "✅ Spark UI accessible" || echo "❌ Spark UI not accessible"
+
+# DEVELOPMENT MODE WITH VOLUME MOUNTS (No rebuild needed for code changes)
+dev-start: dev-normal-start
+
+dev-mock-start:
+	@echo "🔧 Starting DEVELOPMENT pipeline with MOCK MODE + Volume Mounts..."
+	@echo "⚡ Code changes will be reflected instantly - no rebuild needed!"
+	@echo "Perfect for rapid development and testing"
+	@echo ""
+	@echo "🧹 Cleaning previous data for fresh start..."
+	@$(MAKE) --no-print-directory clean-dev-data
+	@mkdir -p src/spark/jobs data/spark logs/kafka-connect checkpoints
+	@# Ensure logs are completely clean after directory creation
+	@rm -f logs/*.log logs/*.json 2>/dev/null || true
+	@rm -rf logs/kafka-connect/* 2>/dev/null || true
+	@echo "✅ Log files cleared for fresh start"
+	@echo "Creating development docker-compose override..."
+	@echo "version: '3.8'" > docker-compose.dev.yaml
+	@echo "services:" >> docker-compose.dev.yaml
+	@echo "  streaming-producer:" >> docker-compose.dev.yaml
+	@echo "    volumes:" >> docker-compose.dev.yaml
+	@echo "      - ./src:/app/src:ro" >> docker-compose.dev.yaml
+	@echo "      - ./config:/app/config:ro" >> docker-compose.dev.yaml
+	@echo "      - ./requirements-streaming.txt:/app/requirements-streaming.txt:ro" >> docker-compose.dev.yaml
+	@echo "    environment:" >> docker-compose.dev.yaml
+	@echo "      - ALPHA_VANTAGE_MOCK_MODE=true" >> docker-compose.dev.yaml
+	@echo "      - ALPHA_VANTAGE_API_KEY=mock_api_key_for_development" >> docker-compose.dev.yaml
+	@echo "      - PRODUCTION_INTERVAL_SECONDS=60" >> docker-compose.dev.yaml
+	@echo "      - STOCK_SYMBOLS=AAPL,GOOGL,MSFT,AMZN,TSLA,META,NVDA,NFLX,AMD,INTC" >> docker-compose.dev.yaml
+	@echo "      - LOG_LEVEL=INFO" >> docker-compose.dev.yaml
+	@echo "" >> docker-compose.dev.yaml
+	@echo "  streaming-processor:" >> docker-compose.dev.yaml
+	@echo "    volumes:" >> docker-compose.dev.yaml
+	@echo "      - ./src:/app/src:ro" >> docker-compose.dev.yaml
+	@echo "      - ./config:/app/config:ro" >> docker-compose.dev.yaml
+	@echo "      - ./requirements-streaming.txt:/app/requirements-streaming.txt:ro" >> docker-compose.dev.yaml
+	@echo "    environment:" >> docker-compose.dev.yaml
+	@echo "      - ALPHA_VANTAGE_MOCK_MODE=true" >> docker-compose.dev.yaml
+	@echo "      - LOG_LEVEL=INFO" >> docker-compose.dev.yaml
+	@echo "" >> docker-compose.dev.yaml
+	@echo "  kafka-connect:" >> docker-compose.dev.yaml
+	@echo "    volumes:" >> docker-compose.dev.yaml
+	@echo "      - ./config/kafka-connect:/etc/kafka-connect/config:ro" >> docker-compose.dev.yaml
+	@echo "Starting development mode with volume mounts..."
+	@docker-compose -f docker-compose.yaml -f docker-compose.dev.yaml up -d
+	@echo ""
+	@echo "✅ Development pipeline started with volume mounts!"
+	@echo ""
+	@echo "⚡ Development Benefits:"
+	@echo "  🔄 Code changes apply instantly (no rebuild needed)"
+	@echo "  🎭 Unlimited realistic mock data"
+	@echo "  ⚡ Fast 10-second intervals"
+	@echo "  🔧 Perfect for rapid development"
+	@echo ""
+	@echo "📊 Monitoring Endpoints:"
+	@echo "  Producer Health:    http://localhost:8081/health"
+	@echo "  Processor Health:   http://localhost:8082/health"
+	@echo "  Kafka UI:           http://localhost:8090"
+	@echo "  Spark Master UI:    http://localhost:18080"
+	@echo ""
+	@echo "🔍 To monitor: make logs"
+	@echo "🛑 To stop:    make dev-stop"
+
+dev-normal-start:
+	@echo "🔧 Starting DEVELOPMENT pipeline with NORMAL MODE + Volume Mounts..."
+	@echo "⚡ Code changes will be reflected instantly - no rebuild needed!"
+	@echo "Uses real Alpha Vantage API with volume mounts for development"
+	@echo ""
+	@echo "🧹 Cleaning previous data for fresh start..."
+	@$(MAKE) --no-print-directory clean-dev-data
+	@if [ -z "$$ALPHA_VANTAGE_API_KEY" ] && [ ! -f config/.env ]; then \
+		echo "❌ Error: ALPHA_VANTAGE_API_KEY not set and config/.env not found"; \
+		echo "Please set your API key: export ALPHA_VANTAGE_API_KEY=your_key"; \
+		echo "Or run: make setup"; \
+		exit 1; \
+	fi
+	@mkdir -p src/spark/jobs data/spark logs/kafka-connect checkpoints
+	@# Ensure logs are completely clean after directory creation
+	@rm -f logs/*.log logs/*.json 2>/dev/null || true
+	@rm -rf logs/kafka-connect/* 2>/dev/null || true
+	@echo "✅ Log files cleared for fresh start"
+	@echo "Creating development docker-compose override..."
+	@echo "version: '3.8'" > docker-compose.dev.yaml
+	@echo "services:" >> docker-compose.dev.yaml
+	@echo "  streaming-producer:" >> docker-compose.dev.yaml
+	@echo "    volumes:" >> docker-compose.dev.yaml
+	@echo "      - ./src:/app/src:ro" >> docker-compose.dev.yaml
+	@echo "      - ./config:/app/config:ro" >> docker-compose.dev.yaml
+	@echo "      - ./requirements-streaming.txt:/app/requirements-streaming.txt:ro" >> docker-compose.dev.yaml
+	@echo "    environment:" >> docker-compose.dev.yaml
+	@echo "      - ALPHA_VANTAGE_MOCK_MODE=false" >> docker-compose.dev.yaml
+	@echo "      - PRODUCTION_INTERVAL_SECONDS=60" >> docker-compose.dev.yaml
+	@echo "      - LOG_LEVEL=INFO" >> docker-compose.dev.yaml
+	@echo "" >> docker-compose.dev.yaml
+	@echo "  streaming-processor:" >> docker-compose.dev.yaml
+	@echo "    volumes:" >> docker-compose.dev.yaml
+	@echo "      - ./src:/app/src:ro" >> docker-compose.dev.yaml
+	@echo "      - ./config:/app/config:ro" >> docker-compose.dev.yaml
+	@echo "      - ./requirements-streaming.txt:/app/requirements-streaming.txt:ro" >> docker-compose.dev.yaml
+	@echo "    environment:" >> docker-compose.dev.yaml
+	@echo "      - ALPHA_VANTAGE_MOCK_MODE=false" >> docker-compose.dev.yaml
+	@echo "      - LOG_LEVEL=INFO" >> docker-compose.dev.yaml
+	@echo "" >> docker-compose.dev.yaml
+	@echo "  kafka-connect:" >> docker-compose.dev.yaml
+	@echo "    volumes:" >> docker-compose.dev.yaml
+	@echo "      - ./config/kafka-connect:/etc/kafka-connect/config:ro" >> docker-compose.dev.yaml
+	@echo "Starting development mode with volume mounts..."
+	@docker-compose -f docker-compose.yaml -f docker-compose.dev.yaml up -d
+	@echo ""
+	@echo "✅ Development pipeline started with volume mounts!"
+	@echo ""
+	@echo "⚡ Development Benefits:"
+	@echo "  🔄 Code changes apply instantly (no rebuild needed)"
+	@echo "  🚀 Real Alpha Vantage API data"
+	@echo "  🔧 Perfect for production-like development"
+	@echo ""
+	@echo "Check status: make status"
+
+dev-stop:
+	@echo "🛑 Stopping development mode pipeline..."
+	@docker-compose -f docker-compose.yaml -f docker-compose.dev.yaml down
+	@rm -f docker-compose.dev.yaml
+	@echo "✅ Development mode stopped and cleanup complete"
+	@echo "💡 To restart: make dev-mock-start or make dev-start"
+
+# SPARK CLUSTER MODE COMMANDS
+# Distributed processing for production-grade streaming
+
+cluster-setup:
+	@echo "⚡ Setting up Spark Cluster Mode..."
+	@echo "This creates distributed processing environment for production-grade streaming"
+	@echo ""
+	@echo "📁 Creating cluster directories..."
+	@mkdir -p spark-cluster emr scripts
+	@echo "📦 Directories created"
+	@echo ""
+	@echo "⚙️  Cluster configuration already exists:"
+	@echo "  ✅ docker-compose.cluster.yml - Spark cluster infrastructure"
+	@echo "  ✅ spark-cluster/spark-defaults.conf - EMR-aligned configuration"
+	@echo "  ✅ scripts/start-cluster.sh - Automated startup script"
+	@echo "  ✅ emr/cluster-config.json - EMR deployment template"
+	@echo ""
+	@echo "🔧 Making startup script executable..."
+	@chmod +x scripts/start-cluster.sh
+	@echo "✅ Startup script is executable"
+	@echo ""
+	@echo "🎉 Spark Cluster setup complete!"
+	@echo ""
+	@echo "🚀 Next steps:"
+	@echo "  make cluster-mock-start  - Start cluster with mock data"
+	@echo "  make cluster-start       - Start cluster with real API data"
+	@echo "  make cluster-status      - Check cluster health"
+	@echo ""
+	@echo "📊 Cluster Benefits:"
+	@echo "  🚀 Distributed processing across multiple workers"
+	@echo "  ⚡ Resolves resource conflicts from 10 parallel queries"
+	@echo "  🔧 EMR-aligned configuration for seamless production deployment"
+	@echo "  📈 Better performance and scalability"
+
+cluster-mock-start:
+	@echo "⚡ Starting Spark Cluster with MOCK MODE..."
+	@echo "Distributed processing with unlimited realistic mock data"
+	@echo "Perfect for testing parallel streaming queries without resource conflicts"
+	@echo ""
+	@echo "🧹 Cleaning previous data for fresh start..."
+	@$(MAKE) --no-print-directory clean-dev-data
+	@mkdir -p src/spark/jobs data/spark logs/kafka-connect checkpoints
+	@echo "🚀 Starting cluster infrastructure with automated script..."
+	@ALPHA_VANTAGE_MOCK_MODE=true \
+	 ALPHA_VANTAGE_API_KEY=mock_api_key_for_development \
+	 PRODUCTION_INTERVAL_SECONDS=60 \
+	 STOCK_SYMBOLS="AAPL,GOOGL,MSFT,AMZN,TSLA,META,NVDA,NFLX,AMD,INTC" \
+	 LOG_LEVEL=INFO \
+	 ./scripts/start-cluster.sh
+	@echo ""
+	@echo "✅ Spark Cluster started in MOCK MODE!"
+	@echo ""
+	@echo "📊 Cluster Architecture:"
+	@echo "  🏗️  Master Node:  1x Spark Master (coordination)"
+	@echo "  👷 Worker Nodes: 2x Spark Workers (distributed processing)"
+	@echo "  🔄 Driver:       Streaming processor (job submission)"
+	@echo "  💾 Total RAM:    ~6GB distributed across cluster"
+	@echo ""
+	@echo "📊 Monitoring:"
+	@echo "  make cluster-status - Check cluster health"
+	@echo "  make logs          - View streaming logs"
+	@echo "🛑 To stop: make cluster-stop"
+
+cluster-start:
+	@echo "⚡ Starting Spark Cluster with REAL API DATA..."
+	@echo "Distributed processing with real Alpha Vantage API"
+	@echo "Production-grade cluster for handling multiple streaming queries"
+	@echo ""
+	@if [ -z "$$ALPHA_VANTAGE_API_KEY" ] && [ ! -f config/.env ]; then \
+		echo "❌ Error: ALPHA_VANTAGE_API_KEY not set and config/.env not found"; \
+		echo "Please set your API key: export ALPHA_VANTAGE_API_KEY=your_key"; \
+		echo "Or run: make setup"; \
+		exit 1; \
+	fi
+	@echo "🧹 Cleaning previous data for fresh start..."
+	@$(MAKE) --no-print-directory clean-dev-data
+	@mkdir -p src/spark/jobs data/spark logs/kafka-connect checkpoints
+	@echo "🚀 Starting cluster infrastructure with automated script..."
+	@ALPHA_VANTAGE_MOCK_MODE=false \
+	 PRODUCTION_INTERVAL_SECONDS=60 \
+	 LOG_LEVEL=INFO \
+	 ./scripts/start-cluster.sh
+	@echo ""
+	@echo "✅ Spark Cluster started with REAL API DATA!"
+	@echo ""
+	@echo "📊 Cluster Architecture:"
+	@echo "  🏗️  Master Node:  1x Spark Master (coordination)"
+	@echo "  👷 Worker Nodes: 2x Spark Workers (distributed processing)"
+	@echo "  🔄 Driver:       Streaming processor (job submission)"
+	@echo "  💾 Total RAM:    ~6GB distributed across cluster"
+	@echo ""
+	@echo "Check status: make cluster-status"
+
+cluster-stop:
+	@echo "🛑 Stopping Spark Cluster..."
+	@docker-compose -f docker-compose.yml -f docker-compose.cluster.yml down
+	@echo "✅ Spark Cluster stopped"
+	@echo "💡 To restart: make cluster-mock-start or make cluster-start"
+
+cluster-status:
+	@echo "📊 Spark Cluster Status:"
+	@echo "========================"
+	@echo ""
+	@echo "🏗️  Master Node:"
+	@if docker ps --format "table {{.Names}}\t{{.Status}}" | grep -q "spark-master.*Up"; then \
+		echo "  ✅ Spark Master: Running"; \
+		curl -s http://localhost:8080 >/dev/null && echo "  ✅ Master UI: Accessible (http://localhost:8080)" || echo "  ⚠️  Master UI: Not ready yet"; \
+	else \
+		echo "  ❌ Spark Master: Not running"; \
+	fi
+	@echo ""
+	@echo "👷 Worker Nodes:"
+	@if docker ps --format "table {{.Names}}\t{{.Status}}" | grep -q "spark-worker-1.*Up"; then \
+		echo "  ✅ Worker 1: Running"; \
+		curl -s http://localhost:8081 >/dev/null && echo "  ✅ Worker 1 UI: Accessible (http://localhost:8081)" || echo "  ⚠️  Worker 1 UI: Not ready yet"; \
+	else \
+		echo "  ❌ Worker 1: Not running"; \
+	fi
+	@if docker ps --format "table {{.Names}}\t{{.Status}}" | grep -q "spark-worker-2.*Up"; then \
+		echo "  ✅ Worker 2: Running"; \
+		curl -s http://localhost:8082 >/dev/null && echo "  ✅ Worker 2 UI: Accessible (http://localhost:8082)" || echo "  ⚠️  Worker 2 UI: Not ready yet"; \
+	else \
+		echo "  ❌ Worker 2: Not running"; \
+	fi
+	@echo ""
+	@echo "🔄 Streaming Services:"
+	@curl -s http://localhost:8081/health 2>/dev/null | jq -r '.status // "❌ Not responding"' | sed 's/^/Producer: /'
+	@curl -s http://localhost:8082/health 2>/dev/null | jq -r '.status // "❌ Not responding"' | sed 's/^/Processor: /'
+	@echo ""
+	@echo "📊 Cluster Resources:"
+	@echo "  Total Workers: 2"
+	@echo "  Total Cores: 2 (1 per worker)"
+	@echo "  Total Memory: 2GB (1GB per worker)"
+	@echo "  Master Memory: 512MB"
+	@echo ""
+	@echo "🌐 Monitoring URLs:"
+	@echo "  Spark Master UI: http://localhost:8080"
+	@echo "  Worker 1 UI:     http://localhost:8081"
+	@echo "  Worker 2 UI:     http://localhost:8082"
+	@echo "  Kafka UI:        http://localhost:8090"
+
+# MEDALLION ARCHITECTURE DEPLOYMENT
+deploy-medallion:
+	@echo "📊 Deploying Medallion Architecture Connectors..."
+	@echo "================================================="
+	@echo ""
+	@echo "Loading credentials from config/.env..."
+	@# Check if environment file exists
+	@if [ ! -f config/.env ]; then \
+		echo "❌ Error: config/.env file not found"; \
+		echo "Please ensure config/.env exists with AWS and Snowflake credentials"; \
+		exit 1; \
+	fi
+	@echo "✅ Environment file found"
+	@echo ""
+	@echo "Waiting for Kafka Connect to be ready..."
+	@python3 scripts/kafka-connect-manager.py --connect-url http://localhost:8083 wait --timeout 120 || (\
+		echo "❌ Kafka Connect is not available"; \
+		echo "Please ensure the cluster is running: make status"; \
+		exit 1 \
+	)
+	@echo "✅ Kafka Connect is ready"
+	@echo ""
+	@echo "🥉 Deploying Bronze Layer (Raw data → S3)..."
+	@set -a && . config/.env && \
+	 export AWS_DEFAULT_REGION="$$AWS_REGION" && \
+	 export SNOWFLAKE_URL="$$SNOWFLAKE_ACCOUNT.snowflakecomputing.com" && \
+	 set +a && ./scripts/deploy-bronze-connector.sh || (\
+		echo "⚠️  Bronze connector deployment failed (might already exist)"; \
+		echo "Continuing with Silver layer..." \
+	)
+	@echo ""
+	@echo "🥈 Deploying Silver Layer (Processed data → S3)..."
+	@set -a && . config/.env && \
+	 export AWS_DEFAULT_REGION="$$AWS_REGION" && \
+	 export SNOWFLAKE_URL="$$SNOWFLAKE_ACCOUNT.snowflakecomputing.com" && \
+	 set +a && ./scripts/deploy-silver-connector.sh || (\
+		echo "⚠️  Silver connector deployment failed (might already exist)"; \
+		echo "Continuing with Gold layer..." \
+	)
+	@echo ""
+	@echo "🏆 Deploying Gold Layer (Analytics data → Snowflake)..."
+	@set -a && . config/.env && \
+	 export AWS_DEFAULT_REGION="$$AWS_REGION" && \
+	 export SNOWFLAKE_URL="$$SNOWFLAKE_ACCOUNT.snowflakecomputing.com" && \
+	 set +a && ./scripts/deploy-gold-connector.sh || (\
+		echo "⚠️  Gold connector deployment failed (might already exist)"; \
+		echo "Check Snowflake credentials in config/.env" \
+	)
+	@echo ""
+	@echo "🔍 Verifying connector deployment..."
+	@sleep 5
+	@curl -s http://localhost:8083/connectors | python3 -m json.tool || echo "Unable to fetch connector status"
+	@echo ""
+	@echo "🎉 Medallion Architecture deployment complete!"
+	@echo "============================================="
+	@echo ""
+	@echo "📊 Expected Data Flow:"
+	@echo "   🥉 Bronze: Raw Kafka data → S3 Avro files"
+	@echo "   🥈 Silver: Processed data → S3 Parquet files"
+	@echo "   🏆 Gold:   Analytics data → Snowflake tables"
+	@echo ""
+	@echo "📂 Monitor your data:"
+	@echo "   • S3 Bucket: s3://$(shell grep '^S3_BUCKET_NAME=' config/.env | cut -d'=' -f2)"
+	@echo "   • Snowflake Database: $(shell grep '^SNOWFLAKE_DATABASE=' config/.env | cut -d'=' -f2)"
+	@echo ""
+	@echo "🔧 Manage connectors:"
+	@echo "   python scripts/kafka-connect-manager.py list"
+	@echo "   python scripts/kafka-connect-manager.py status <connector-name>"
+
+// ...
+
+
+
+# DEVELOPMENT MODE WITH VOLUME MOUNTS (No rebuild needed for code changes)
+dev-start: dev-normal-start
+
+dev-mock-start:
+	@echo "🔧 Starting DEVELOPMENT pipeline with MOCK MODE + Volume Mounts..."
+	@echo "⚡ Code changes will be reflected instantly - no rebuild needed!"
+	@echo "Perfect for rapid development and testing"
+	@echo ""
+	@echo "🧹 Cleaning previous data for fresh start..."
+	@$(MAKE) --no-print-directory clean-dev-data
+	@mkdir -p src/spark/jobs data/spark logs/kafka-connect checkpoints
+	@# Ensure logs are completely clean after directory creation
+	@rm -f logs/*.log logs/*.json 2>/dev/null || true
+	@rm -rf logs/kafka-connect/* 2>/dev/null || true
+	@echo "✅ Log files cleared for fresh start"
+	@echo "Creating development docker-compose override..."
+	@echo "version: '3.8'" > docker-compose.dev.yaml
+	@echo "services:" >> docker-compose.dev.yaml
+	@echo "  streaming-producer:" >> docker-compose.dev.yaml
+	@echo "    volumes:" >> docker-compose.dev.yaml
+	@echo "      - ./src:/app/src:ro" >> docker-compose.dev.yaml
+	@echo "      - ./config:/app/config:ro" >> docker-compose.dev.yaml
+	@echo "      - ./requirements-streaming.txt:/app/requirements-streaming.txt:ro" >> docker-compose.dev.yaml
+	@echo "    environment:" >> docker-compose.dev.yaml
+	@echo "      - ALPHA_VANTAGE_MOCK_MODE=true" >> docker-compose.dev.yaml
+	@echo "      - ALPHA_VANTAGE_API_KEY=mock_api_key_for_development" >> docker-compose.dev.yaml
+	@echo "      - PRODUCTION_INTERVAL_SECONDS=60" >> docker-compose.dev.yaml
+	@echo "      - STOCK_SYMBOLS=AAPL,GOOGL,MSFT,AMZN,TSLA,META,NVDA,NFLX,AMD,INTC" >> docker-compose.dev.yaml
+	@echo "      - LOG_LEVEL=INFO" >> docker-compose.dev.yaml
+	@echo "" >> docker-compose.dev.yaml
+	@echo "  streaming-processor:" >> docker-compose.dev.yaml
+	@echo "    volumes:" >> docker-compose.dev.yaml
+	@echo "      - ./src:/app/src:ro" >> docker-compose.dev.yaml
+	@echo "      - ./config:/app/config:ro" >> docker-compose.dev.yaml
+	@echo "      - ./requirements-streaming.txt:/app/requirements-streaming.txt:ro" >> docker-compose.dev.yaml
+	@echo "    environment:" >> docker-compose.dev.yaml
+	@echo "      - ALPHA_VANTAGE_MOCK_MODE=true" >> docker-compose.dev.yaml
+	@echo "      - LOG_LEVEL=INFO" >> docker-compose.dev.yaml
+	@echo "" >> docker-compose.dev.yaml
+	@echo "  kafka-connect:" >> docker-compose.dev.yaml
+	@echo "    volumes:" >> docker-compose.dev.yaml
+	@echo "      - ./config/kafka-connect:/etc/kafka-connect/config:ro" >> docker-compose.dev.yaml
+	@echo "Starting development mode with volume mounts..."
+	@docker-compose -f docker-compose.yaml -f docker-compose.dev.yaml up -d
+	@echo ""
+	@echo "✅ Development pipeline started with volume mounts!"
+	@echo ""
+	@echo "⚡ Development Benefits:"
+	@echo "  🔄 Code changes apply instantly (no rebuild needed)"
+	@echo "  🎭 Unlimited realistic mock data"
+	@echo "  ⚡ Fast 10-second intervals"
+	@echo "  🔧 Perfect for rapid development"
+	@echo ""
+	@echo "📊 Monitoring Endpoints:"
+	@echo "  Producer Health:    http://localhost:8081/health"
+	@echo "  Processor Health:   http://localhost:8082/health"
+	@echo "  Kafka UI:           http://localhost:8090"
+	@echo "  Spark Master UI:    http://localhost:18080"
+	@echo ""
+	@echo "🔍 To monitor: make logs"
+	@echo "🛑 To stop:    make dev-stop"
+
+dev-normal-start:
+	@echo "🔧 Starting DEVELOPMENT pipeline with NORMAL MODE + Volume Mounts..."
+	@echo "⚡ Code changes will be reflected instantly - no rebuild needed!"
+	@echo "Uses real Alpha Vantage API with volume mounts for development"
+	@echo ""
+	@echo "🧹 Cleaning previous data for fresh start..."
+	@$(MAKE) --no-print-directory clean-dev-data
+	@if [ -z "$$ALPHA_VANTAGE_API_KEY" ] && [ ! -f config/.env ]; then \
+		echo "❌ Error: ALPHA_VANTAGE_API_KEY not set and config/.env not found"; \
+		echo "Please set your API key: export ALPHA_VANTAGE_API_KEY=your_key"; \
+		echo "Or run: make setup"; \
+		exit 1; \
+	fi
+	@mkdir -p src/spark/jobs data/spark logs/kafka-connect checkpoints
+	@# Ensure logs are completely clean after directory creation
+	@rm -f logs/*.log logs/*.json 2>/dev/null || true
+	@rm -rf logs/kafka-connect/* 2>/dev/null || true
+	@echo "✅ Log files cleared for fresh start"
+	@echo "Creating development docker-compose override..."
+	@echo "version: '3.8'" > docker-compose.dev.yaml
+	@echo "services:" >> docker-compose.dev.yaml
+	@echo "  streaming-producer:" >> docker-compose.dev.yaml
+	@echo "    volumes:" >> docker-compose.dev.yaml
+	@echo "      - ./src:/app/src:ro" >> docker-compose.dev.yaml
+	@echo "      - ./config:/app/config:ro" >> docker-compose.dev.yaml
+	@echo "      - ./requirements-streaming.txt:/app/requirements-streaming.txt:ro" >> docker-compose.dev.yaml
+	@echo "    environment:" >> docker-compose.dev.yaml
+	@echo "      - ALPHA_VANTAGE_MOCK_MODE=false" >> docker-compose.dev.yaml
+	@echo "      - PRODUCTION_INTERVAL_SECONDS=60" >> docker-compose.dev.yaml
+	@echo "      - LOG_LEVEL=INFO" >> docker-compose.dev.yaml
+	@echo "" >> docker-compose.dev.yaml
+	@echo "  streaming-processor:" >> docker-compose.dev.yaml
+	@echo "    volumes:" >> docker-compose.dev.yaml
+	@echo "      - ./src:/app/src:ro" >> docker-compose.dev.yaml
+	@echo "      - ./config:/app/config:ro" >> docker-compose.dev.yaml
+	@echo "      - ./requirements-streaming.txt:/app/requirements-streaming.txt:ro" >> docker-compose.dev.yaml
+	@echo "    environment:" >> docker-compose.dev.yaml
+	@echo "      - ALPHA_VANTAGE_MOCK_MODE=false" >> docker-compose.dev.yaml
+	@echo "      - LOG_LEVEL=INFO" >> docker-compose.dev.yaml
+	@echo "" >> docker-compose.dev.yaml
+	@echo "  kafka-connect:" >> docker-compose.dev.yaml
+	@echo "    volumes:" >> docker-compose.dev.yaml
+	@echo "      - ./config/kafka-connect:/etc/kafka-connect/config:ro" >> docker-compose.dev.yaml
+	@echo "Starting development mode with volume mounts..."
+	@docker-compose -f docker-compose.yaml -f docker-compose.dev.yaml up -d
+	@echo ""
+	@echo "✅ Development pipeline started with volume mounts!"
+	@echo ""
+	@echo "⚡ Development Benefits:"
+	@echo "  🔄 Code changes apply instantly (no rebuild needed)"
+	@echo "  🚀 Real Alpha Vantage API data"
+	@echo "  🔧 Perfect for production-like development"
+	@echo ""
+	@echo "Check status: make status"
+
+dev-stop:
+	@echo "🛑 Stopping development mode pipeline..."
+	@docker-compose -f docker-compose.yaml -f docker-compose.dev.yaml down
+	@rm -f docker-compose.dev.yaml
+	@echo "✅ Development mode stopped and cleanup complete"
+	@echo "💡 To restart: make dev-mock-start or make dev-start"
+
+# SPARK CLUSTER MODE COMMANDS
+# Distributed processing for production-grade streaming
+
+cluster-setup:
+	@echo "⚡ Setting up Spark Cluster Mode..."
+	@echo "This creates distributed processing environment for production-grade streaming"
+	@echo ""
+	@echo "📁 Creating cluster directories..."
+	@mkdir -p spark-cluster emr scripts
+	@echo "📦 Directories created"
+	@echo ""
+	@echo "⚙️  Cluster configuration already exists:"
+	@echo "  ✅ docker-compose.cluster.yml - Spark cluster infrastructure"
+	@echo "  ✅ spark-cluster/spark-defaults.conf - EMR-aligned configuration"
+	@echo "  ✅ scripts/start-cluster.sh - Automated startup script"
+	@echo "  ✅ emr/cluster-config.json - EMR deployment template"
+	@echo ""
+	@echo "🔧 Making startup script executable..."
+	@chmod +x scripts/start-cluster.sh
+	@echo "✅ Startup script is executable"
+	@echo ""
+	@echo "🎉 Spark Cluster setup complete!"
+	@echo ""
+	@echo "🚀 Next steps:"
+	@echo "  make cluster-mock-start  - Start cluster with mock data"
+	@echo "  make cluster-start       - Start cluster with real API data"
+	@echo "  make cluster-status      - Check cluster health"
+	@echo ""
+	@echo "📊 Cluster Benefits:"
+	@echo "  🚀 Distributed processing across multiple workers"
+	@echo "  ⚡ Resolves resource conflicts from 10 parallel queries"
+	@echo "  🔧 EMR-aligned configuration for seamless production deployment"
+	@echo "  📈 Better performance and scalability"
+
+cluster-mock-start:
+	@echo "⚡ Starting Spark Cluster with MOCK MODE..."
+	@echo "Distributed processing with unlimited realistic mock data"
+	@echo "Perfect for testing parallel streaming queries without resource conflicts"
+	@echo ""
+	@echo "🧹 Cleaning previous data for fresh start..."
+	@$(MAKE) --no-print-directory clean-dev-data
+	@mkdir -p src/spark/jobs data/spark logs/kafka-connect checkpoints
+	@echo "🚀 Starting cluster infrastructure with automated script..."
+	@ALPHA_VANTAGE_MOCK_MODE=true \
+	 ALPHA_VANTAGE_API_KEY=mock_api_key_for_development \
+	 PRODUCTION_INTERVAL_SECONDS=60 \
+	 STOCK_SYMBOLS="AAPL,GOOGL,MSFT,AMZN,TSLA,META,NVDA,NFLX,AMD,INTC" \
+	 LOG_LEVEL=INFO \
+	 ./scripts/start-cluster.sh
+	@echo ""
+	@echo "✅ Spark Cluster started in MOCK MODE!"
+	@echo ""
+	@echo "📊 Cluster Architecture:"
+	@echo "  🏗️  Master Node:  1x Spark Master (coordination)"
+	@echo "  👷 Worker Nodes: 2x Spark Workers (distributed processing)"
+	@echo "  🔄 Driver:       Streaming processor (job submission)"
+	@echo "  💾 Total RAM:    ~6GB distributed across cluster"
+	@echo ""
+	@echo "📊 Monitoring:"
+	@echo "  make cluster-status - Check cluster health"
+	@echo "  make logs          - View streaming logs"
+	@echo "🛑 To stop: make cluster-stop"
+
+cluster-start:
+	@echo "⚡ Starting Spark Cluster with REAL API DATA..."
+	@echo "Distributed processing with real Alpha Vantage API"
+	@echo "Production-grade cluster for handling multiple streaming queries"
+	@echo ""
+	@if [ -z "$$ALPHA_VANTAGE_API_KEY" ] && [ ! -f config/.env ]; then \
+		echo "❌ Error: ALPHA_VANTAGE_API_KEY not set and config/.env not found"; \
+		echo "Please set your API key: export ALPHA_VANTAGE_API_KEY=your_key"; \
+		echo "Or run: make setup"; \
+		exit 1; \
+	fi
+	@echo "🧹 Cleaning previous data for fresh start..."
+	@$(MAKE) --no-print-directory clean-dev-data
+	@mkdir -p src/spark/jobs data/spark logs/kafka-connect checkpoints
+	@echo "🚀 Starting cluster infrastructure with automated script..."
+	@ALPHA_VANTAGE_MOCK_MODE=false \
+	 PRODUCTION_INTERVAL_SECONDS=60 \
+	 LOG_LEVEL=INFO \
+	 ./scripts/start-cluster.sh
+	@echo ""
+	@echo "✅ Spark Cluster started with REAL API DATA!"
+	@echo ""
+	@echo "📊 Cluster Architecture:"
+	@echo "  🏗️  Master Node:  1x Spark Master (coordination)"
+	@echo "  👷 Worker Nodes: 2x Spark Workers (distributed processing)"
+	@echo "  🔄 Driver:       Streaming processor (job submission)"
+	@echo "  💾 Total RAM:    ~6GB distributed across cluster"
+	@echo ""
+	@echo "Check status: make cluster-status"
+
+cluster-stop:
+	@echo "🛑 Stopping Spark Cluster..."
+	@docker-compose -f docker-compose.yml -f docker-compose.cluster.yml down
+	@echo "✅ Spark Cluster stopped"
+	@echo "💡 To restart: make cluster-mock-start or make cluster-start"
+
+cluster-status:
+	@echo "📊 Spark Cluster Status:"
+	@echo "========================"
+	@echo ""
+	@echo "🏗️  Master Node:"
+	@if docker ps --format "table {{.Names}}\t{{.Status}}" | grep -q "spark-master.*Up"; then \
+		echo "  ✅ Spark Master: Running"; \
+		curl -s http://localhost:8080 >/dev/null && echo "  ✅ Master UI: Accessible (http://localhost:8080)" || echo "  ⚠️  Master UI: Not ready yet"; \
+	else \
+		echo "  ❌ Spark Master: Not running"; \
+	fi
+	@echo ""
+	@echo "👷 Worker Nodes:"
+	@if docker ps --format "table {{.Names}}\t{{.Status}}" | grep -q "spark-worker-1.*Up"; then \
+		echo "  ✅ Worker 1: Running"; \
+		curl -s http://localhost:8081 >/dev/null && echo "  ✅ Worker 1 UI: Accessible (http://localhost:8081)" || echo "  ⚠️  Worker 1 UI: Not ready yet"; \
+	else \
+		echo "  ❌ Worker 1: Not running"; \
+	fi
+	@if docker ps --format "table {{.Names}}\t{{.Status}}" | grep -q "spark-worker-2.*Up"; then \
+		echo "  ✅ Worker 2: Running"; \
+		curl -s http://localhost:8082 >/dev/null && echo "  ✅ Worker 2 UI: Accessible (http://localhost:8082)" || echo "  ⚠️  Worker 2 UI: Not ready yet"; \
+	else \
+		echo "  ❌ Worker 2: Not running"; \
+	fi
+	@echo ""
+	@echo "🔄 Streaming Services:"
+	@curl -s http://localhost:8081/health 2>/dev/null | jq -r '.status // "❌ Not responding"' | sed 's/^/Producer: /'
+	@curl -s http://localhost:8082/health 2>/dev/null | jq -r '.status // "❌ Not responding"' | sed 's/^/Processor: /'
+	@echo ""
+	@echo "📊 Cluster Resources:"
+	@echo "  Total Workers: 2"
+	@echo "  Total Cores: 2 (1 per worker)"
+	@echo "  Total Memory: 2GB (1GB per worker)"
+	@echo "  Master Memory: 512MB"
+	@echo ""
+	@echo "🌐 Monitoring URLs:"
+	@echo "  Spark Master UI: http://localhost:8080"
+	@echo "  Worker 1 UI:     http://localhost:8081"
+	@echo "  Worker 2 UI:     http://localhost:8082"
+	@echo "  Kafka UI:        http://localhost:8090"
+
+# MEDALLION ARCHITECTURE DEPLOYMENT
+deploy-medallion:
+	@echo "📊 Deploying Medallion Architecture Connectors..."
+	@echo "================================================="
+	@echo ""
+	@echo "Loading credentials from config/.env..."
+	@# Check if environment file exists
+	@if [ ! -f config/.env ]; then \
+		echo "❌ Error: config/.env file not found"; \
+		echo "Please ensure config/.env exists with AWS and Snowflake credentials"; \
+		exit 1; \
+	fi
+	@echo "✅ Environment file found"
+	@echo ""
+	@echo "Waiting for Kafka Connect to be ready..."
+	@python3 scripts/kafka-connect-manager.py --connect-url http://localhost:8083 wait --timeout 120 || (\
+		echo "❌ Kafka Connect is not available"; \
+		echo "Please ensure the cluster is running: make status"; \
+		exit 1 \
+	)
+	@echo "✅ Kafka Connect is ready"
+	@echo ""
+	@echo "🥉 Deploying Bronze Layer (Raw data → S3)..."
+	@set -a && . config/.env && \
+	 export AWS_DEFAULT_REGION="$$AWS_REGION" && \
+	 export SNOWFLAKE_URL="$$SNOWFLAKE_ACCOUNT.snowflakecomputing.com" && \
+	 set +a && ./scripts/deploy-bronze-connector.sh || (\
+		echo "⚠️  Bronze connector deployment failed (might already exist)"; \
+		echo "Continuing with Silver layer..." \
+	)
+	@echo ""
+	@echo "🥈 Deploying Silver Layer (Processed data → S3)..."
+	@set -a && . config/.env && \
+	 export AWS_DEFAULT_REGION="$$AWS_REGION" && \
+	 export SNOWFLAKE_URL="$$SNOWFLAKE_ACCOUNT.snowflakecomputing.com" && \
+	 set +a && ./scripts/deploy-silver-connector.sh || (\
+		echo "⚠️  Silver connector deployment failed (might already exist)"; \
+		echo "Continuing with Gold layer..." \
+	)
+	@echo ""
+	@echo "🏆 Deploying Gold Layer (Analytics data → Snowflake)..."
+	@set -a && . config/.env && \
+	 export AWS_DEFAULT_REGION="$$AWS_REGION" && \
+	 export SNOWFLAKE_URL="$$SNOWFLAKE_ACCOUNT.snowflakecomputing.com" && \
+	 set +a && ./scripts/deploy-gold-connector.sh || (\
+		echo "⚠️  Gold connector deployment failed (might already exist)"; \
+		echo "Check Snowflake credentials in config/.env" \
+	)
+	@echo ""
+	@echo "🔍 Verifying connector deployment..."
+	@sleep 5
+	@curl -s http://localhost:8083/connectors | python3 -m json.tool || echo "Unable to fetch connector status"
+	@echo ""
+	@echo "🎉 Medallion Architecture deployment complete!"
+	@echo "============================================="
+	@echo ""
+	@echo "📊 Expected Data Flow:"
+	@echo "   🥉 Bronze: Raw Kafka data → S3 Avro files"
+	@echo "   🥈 Silver: Processed data → S3 Parquet files"
+	@echo "   🏆 Gold:   Analytics data → Snowflake tables"
+	@echo ""
+	@echo "📂 Monitor your data:"
+	@echo "   • S3 Bucket: s3://$(shell grep '^S3_BUCKET_NAME=' config/.env | cut -d'=' -f2)"
+	@echo "   • Snowflake Database: $(shell grep '^SNOWFLAKE_DATABASE=' config/.env | cut -d'=' -f2)"
+	@echo ""
+	@echo "🔧 Manage connectors:"
+	@echo "   python scripts/kafka-connect-manager.py list"
+	@echo "   python scripts/kafka-connect-manager.py status <connector-name>"

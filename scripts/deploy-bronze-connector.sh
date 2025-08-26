@@ -13,7 +13,7 @@ echo "=================================="
 
 # Check if Kafka Connect is ready
 echo "Checking Kafka Connect availability..."
-python scripts/kafka-connect-manager.py --connect-url $CONNECT_URL wait --timeout 60
+python3 scripts/kafka-connect-manager.py --connect-url $CONNECT_URL wait --timeout 60
 
 if [ $? -ne 0 ]; then
     echo "Error: Kafka Connect is not available"
@@ -33,10 +33,10 @@ fi
 
 # Create a temporary config file with environment variables substituted
 TEMP_CONFIG=$(mktemp)
-envsubst < $CONFIG_FILE > $TEMP_CONFIG
+python3 scripts/env_substitute.py $CONFIG_FILE $TEMP_CONFIG
 
 echo "Creating Bronze S3 connector..."
-python scripts/kafka-connect-manager.py --connect-url $CONNECT_URL create $TEMP_CONFIG
+python3 scripts/kafka-connect-manager.py --connect-url $CONNECT_URL create $TEMP_CONFIG
 
 if [ $? -eq 0 ]; then
     echo "✓ Bronze S3 connector created successfully"
@@ -46,7 +46,7 @@ if [ $? -eq 0 ]; then
     
     # Check connector status
     echo "Checking connector status..."
-    python scripts/kafka-connect-manager.py --connect-url $CONNECT_URL status bronze-s3-sink-connector
+    python3 scripts/kafka-connect-manager.py --connect-url $CONNECT_URL status bronze-s3-sink-connector
     
     echo ""
     echo "Bronze Layer S3 Connector deployed successfully!"
@@ -54,7 +54,7 @@ if [ $? -eq 0 ]; then
     echo "will be stored in S3 bucket: $S3_BUCKET_NAME/bronze/stock-data/"
     echo ""
     echo "To test the connector, run:"
-    echo "  python scripts/test-bronze-connector.py"
+    echo "  python3 scripts/test-bronze-connector.py"
     
 else
     echo "✗ Failed to create Bronze S3 connector"

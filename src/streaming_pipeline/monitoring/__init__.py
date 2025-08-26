@@ -1,23 +1,32 @@
 """
-Monitoring and observability components for the streaming pipeline.
+Monitoring components for the streaming pipeline.
 
-This module provides comprehensive monitoring capabilities including:
-- Structured logging with layer tracking
-- Health checks for Kafka Connect connectors
-- Data lineage tracking across medallion architecture layers
-- Metrics collection and alerting
+This module provides essential monitoring capabilities including:
+- Simple layer-aware logging
+- Basic health checks
+- Data lineage tracking for medallion architecture (core data engineering concept)
+- Simple metrics collection for pipeline monitoring
 """
 
-from .logger import PipelineLogger, LayerTracker
+from .simple_logger import SimplePipelineLogger, PipelineLogger, MedallionLayer, create_logger
 from .health_checks import KafkaConnectHealthChecker, PipelineHealthChecker
-from .lineage import DataLineageTracker
-from .metrics import MetricsCollector
+from .simple_lineage import SimpleDataLineageTracker, get_lineage_tracker
+from .simple_metrics import SimpleMetricsCollector, get_metrics_collector
+from .simple_health import SimpleHealthServer, start_health_server, get_health_server, stop_health_server
 
 __all__ = [
+    'SimplePipelineLogger',
     'PipelineLogger',
-    'LayerTracker', 
+    'MedallionLayer',
+    'create_logger',
     'KafkaConnectHealthChecker',
     'PipelineHealthChecker',
-    'DataLineageTracker',
-    'MetricsCollector'
+    'SimpleDataLineageTracker',
+    'get_lineage_tracker',
+    'SimpleMetricsCollector',
+    'get_metrics_collector',
+    'SimpleHealthServer',
+    'start_health_server',
+    'get_health_server',
+    'stop_health_server'
 ]

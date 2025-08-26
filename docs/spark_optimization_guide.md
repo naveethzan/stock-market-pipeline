@@ -147,14 +147,14 @@ spark = SparkSession.builder \
 
 ### Step 1: Backup Current Implementation
 ```bash
-cp src/batch/jobs/daily_etl.py src/batch/jobs/daily_etl_backup.py
+cp src/streaming_pipeline/processors/stream_processor.py src/streaming_pipeline/processors/stream_processor_backup.py
 ```
 
 ### Step 2: Deploy Optimized Version
 ```bash
 # Replace with optimized version
-cp src/batch/jobs/daily_etl_optimized.py src/batch/jobs/daily_etl.py
-cp src/batch/models/transformations_optimized.py src/batch/models/transformations.py
+cp src/streaming_pipeline/processors/stream_processor_optimized.py src/streaming_pipeline/processors/stream_processor.py
+cp src/streaming_pipeline/models/transformations_optimized.py src/streaming_pipeline/models/transformations.py
 ```
 
 ### Step 3: Update Configuration

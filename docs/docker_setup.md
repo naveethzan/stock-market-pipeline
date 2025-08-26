@@ -161,22 +161,20 @@ Both containers use several volume mounts:
 
 ## Docker Compose Files
 
-### Main Configuration (`docker-compose.yaml`)
-Contains infrastructure services:
+### Main Configuration (`docker-compose.streaming.yaml`)
+Contains all streaming pipeline services:
 - Kafka and Zookeeper
 - Spark master and worker
-- PostgreSQL for Airflow
+- Schema Registry
+- Kafka Connect
 - Monitoring stack (Prometheus, Grafana)
-
-### Streaming Extension (`docker-compose.streaming.yaml`)
-Contains streaming-specific services:
 - `streaming-producer`
 - `streaming-processor`
 
 ### Usage
 ```bash
-# Use both files together
-docker-compose -f docker-compose.yaml -f docker-compose.streaming.yaml up -d
+# Start all streaming services
+docker-compose -f docker-compose.streaming.yaml up -d
 
 # Or use the Makefile
 make -f Makefile.streaming-docker up
@@ -415,10 +413,10 @@ SPARK_TRIGGER_PROCESSING_TIME=5 seconds
 ### Scaling
 ```bash
 # Scale producer instances
-docker-compose -f docker-compose.yaml -f docker-compose.streaming.yaml up -d --scale streaming-producer=3
+docker-compose -f docker-compose.streaming.yaml up -d --scale streaming-producer=3
 
 # Scale Spark workers
-docker-compose -f docker-compose.yaml up -d --scale spark-worker=3
+docker-compose -f docker-compose.streaming.yaml up -d --scale spark-worker=3
 ```
 
 ### Monitoring

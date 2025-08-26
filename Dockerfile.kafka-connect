@@ -1,17 +1,21 @@
 FROM confluentinc/cp-kafka-connect:7.6.0
 
+# Switch to root to install packages and create directories
+USER root
+
 # Install connector plugins
 RUN confluent-hub install --no-prompt confluentinc/kafka-connect-s3:10.5.0
 RUN confluent-hub install --no-prompt snowflakeinc/snowflake-kafka-connector:1.9.3
 RUN confluent-hub install --no-prompt confluentinc/kafka-connect-avro-converter:7.6.0
 
-# Create directories for configuration and logs
-RUN mkdir -p /etc/kafka-connect/jars
-RUN mkdir -p /var/log/kafka-connect
+# Create directories for configuration and logs with proper permissions
+RUN mkdir -p /etc/kafka-connect/jars && \
+    mkdir -p /tmp/kafka-connect-logs && \
+    chown -R appuser:appuser /etc/kafka-connect && \
+    chown -R appuser:appuser /tmp/kafka-connect-logs
 
 # Copy configuration files
-COPY config/kafka-connect/kafka-connect.properties /etc/kafka-connect/kafka-connect.properties
-COPY config/kafka-connect/log4j.properties /etc/kafka-connect/log4j.properties
+COPY config/kafka-connect/ /etc/kafka-connect/
 
 # Set environment variables
 ENV CONNECT_BOOTSTRAP_SERVERS=kafka:9092
@@ -37,6 +41,9 @@ ENV CONNECT_PLUGIN_PATH=/usr/share/java,/usr/share/confluent-hub-components
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=30s \
   CMD curl -f http://localhost:8083/connectors || exit 1
+
+# Switch back to appuser for runtime
+USER appuser
 
 # Expose port
 EXPOSE 8083

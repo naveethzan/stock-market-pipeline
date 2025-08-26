@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from enum import Enum
 from datetime import datetime, timedelta
 
-from .logger import PipelineLogger, MedallionLayer
+from .simple_logger import PipelineLogger, MedallionLayer
 
 
 class HealthStatus(Enum):

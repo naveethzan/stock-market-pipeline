@@ -1,27 +1,102 @@
-# OS
+# OS-specific files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*~
 
-# Python
+# IDE-specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# Qoder IDE files
+.qoder/
+.kiro/
+
+# Python cache and build artifacts
 __pycache__/
 *.py[cod]
 *.pyo
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.coverage
+.tox/
+.cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
 
-# Virtual envs
+# Virtual environments
 venv/
+env/
+ENV/
+.venv/
+.env/
 
-# Airflow
-airflow/logs/
-
-# Data/runtime
+# Kafka data files
 data/kafka/
+kafka-logs/
+**/kafka-logs/
+*.log
+*.log.*
+
+# Zookeeper data files
 data/zookeeper/
+zookeeper/
+**/zookeeper/
+
+# Schema Registry data
+data/schema-registry/
+
+# Spark data and logs
 data/spark/
+spark-warehouse/
+**/spark-warehouse/
+derby.log
+metastore_db/
+
+# Spark Streaming checkpoints
+checkpoints/
+**/checkpoints/
+*.checkpoint
+checkpoint/
+
+# Streaming pipeline data (keep minimal test data only)
 data/raw/
 data/processed/
+data/output/
+data/archive/
+data/quarantine/
 
-# Notebooks
+# Application logs
+logs/
+**/*.log
+**/*.log.*
+*.json.log
+
+# Jupyter notebooks
 *.ipynb
 .ipynb_checkpoints/
 
-# Local secrets
+# Local secrets and environment files
 config/.env
+.env
+.env.local
+.env.*.local
+
+# Temporary files and validation results
+*.tmp
+*.temp
+validation_results.json

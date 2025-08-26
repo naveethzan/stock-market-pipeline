@@ -1,11 +1,11 @@
-# DataProducer - Kafka Producer for Streaming Financial Data
+# AvroDataProducer - Kafka Producer for Streaming Financial Data
 
-The `DataProducer` class is a comprehensive Kafka producer implementation for streaming financial data from Alpha Vantage API. It provides robust error handling, JSON message serialization, and comprehensive logging and metrics tracking.
+The `AvroDataProducer` class is a comprehensive Kafka producer implementation for streaming financial data from Alpha Vantage API. It provides robust error handling, Avro message serialization with Schema Registry integration, and comprehensive logging and metrics tracking.
 
 ## Features
 
 - **Alpha Vantage Integration**: Seamlessly integrates with Alpha Vantage API client for real-time stock data
-- **JSON Serialization**: Automatic JSON serialization of stock data with metadata enrichment
+- **Avro Serialization**: Automatic Avro serialization of stock data with Schema Registry integration
 - **Error Handling**: Comprehensive error handling with retry logic and graceful degradation
 - **Metrics Tracking**: Built-in performance metrics and monitoring capabilities
 - **Kafka Integration**: Uses confluent-kafka for high-performance message production
@@ -14,10 +14,10 @@ The `DataProducer` class is a comprehensive Kafka producer implementation for st
 
 ## Requirements
 
-The DataProducer satisfies the following requirements from the streaming pipeline specification:
+The AvroDataProducer satisfies the following requirements from the streaming pipeline specification:
 
 - **Requirement 2.1**: Publishes messages to Kafka topics when data is received from Alpha Vantage
-- **Requirement 2.2**: Uses appropriate partitioning strategy based on stock symbol and implements JSON schema for data consistency
+- **Requirement 2.2**: Uses appropriate partitioning strategy based on stock symbol and implements Avro schema for data consistency
 
 ## Usage
 
@@ -26,7 +26,7 @@ The DataProducer satisfies the following requirements from the streaming pipelin
 ```python
 from streaming_pipeline.config.settings import ConfigManager
 from streaming_pipeline.clients.alpha_vantage import AlphaVantageClient
-from streaming_pipeline.producers.data_producer import DataProducer
+from streaming_pipeline.producers.kafka_avro_producer import AvroDataProducer
 
 # Initialize configuration
 config = ConfigManager()
@@ -34,11 +34,11 @@ config = ConfigManager()
 # Create Alpha Vantage client
 alpha_vantage_client = AlphaVantageClient(config.alpha_vantage)
 
-# Create and use data producer
-with DataProducer(config, alpha_vantage_client) as producer:
-    # Produce real-time quotes
+# Create and use Avro data producer
+with AvroDataProducer(config, alpha_vantage_client) as producer:
+    # Produce real-time quotes with Avro serialization
     symbols = ['AAPL', 'GOOGL', 'MSFT']
-    results = producer.produce_real_time_quotes(symbols)
+    results = producer.produce_real_time_quotes_avro(symbols)
     
     # Check results
     for symbol, success in results.items():
@@ -48,9 +48,9 @@ with DataProducer(config, alpha_vantage_client) as producer:
 ### Real-time Quote Production
 
 ```python
-# Produce real-time quotes for multiple symbols
+# Produce real-time quotes for multiple symbols with Avro serialization
 symbols = ['AAPL', 'GOOGL', 'MSFT', 'AMZN', 'TSLA']
-results = producer.produce_real_time_quotes(symbols)
+results = producer.produce_real_time_quotes_avro(symbols)
 
 # Results is a dictionary mapping symbols to success status
 successful_count = sum(1 for success in results.values() if success)
@@ -60,24 +60,10 @@ print(f"Successfully produced quotes for {successful_count}/{len(symbols)} symbo
 ### Intraday Data Production
 
 ```python
-# Produce intraday data with specific interval
+# Produce intraday data with Avro serialization
 symbols = ['AAPL', 'GOOGL']
-interval = '5min'  # Options: '1min', '5min', '15min', '30min', '60min'
-results = producer.produce_intraday_data(symbols, interval)
-```
-
-### Market Event Production
-
-```python
-# Produce market events
-producer.produce_market_event(
-    event_type="market_open",
-    event_data={
-        "market": "NYSE",
-        "timezone": "America/New_York",
-        "trading_session": "regular"
-    }
-)
+interval = '1min'  # Options: '1min', '5min', '15min', '30min', '60min'
+# Note: Intraday data production methods would need to be implemented in AvroDataProducer
 ```
 
 ### Metrics and Monitoring

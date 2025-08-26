@@ -13,7 +13,7 @@ echo ""
 
 # Check if Kafka Connect is ready
 echo "1. Checking Kafka Connect availability..."
-python scripts/kafka-connect-manager.py --connect-url $CONNECT_URL wait --timeout 120
+python3 scripts/kafka-connect-manager.py --connect-url $CONNECT_URL wait --timeout 120
 
 if [ $? -ne 0 ]; then
     echo "Error: Kafka Connect is not available"
@@ -105,14 +105,14 @@ if [ "$ALL_RUNNING" = true ]; then
     echo "   • Tables: FACT_STOCK_PRICES_STAGING, FACT_TRADING_VOLUME_STAGING, TECHNICAL_INDICATORS_STAGING"
     echo ""
     echo "🔧 MANAGEMENT COMMANDS:"
-    echo "   • List connectors: python scripts/kafka-connect-manager.py list"
-    echo "   • Check status: python scripts/kafka-connect-manager.py status <connector-name>"
-    echo "   • Restart connector: python scripts/kafka-connect-manager.py restart <connector-name>"
+    echo "   • List connectors: python3 scripts/kafka-connect-manager.py list"
+    echo "   • Check status: python3 scripts/kafka-connect-manager.py status <connector-name>"
+    echo "   • Restart connector: python3 scripts/kafka-connect-manager.py restart <connector-name>"
     echo ""
     echo "🧪 TESTING:"
-    echo "   • Test Bronze: python scripts/test-bronze-connector.py"
-    echo "   • Test Silver: python scripts/test-silver-connector.py"
-    echo "   • Test Gold: python scripts/test-gold-connector.py"
+    echo "   • Test Bronze: python3 scripts/test-bronze-connector.py"
+    echo "   • Test Silver: python3 scripts/test-silver-connector.py"
+    echo "   • Test Gold: python3 scripts/test-gold-connector.py"
     echo ""
     echo "📊 MONITORING:"
     echo "   • Kafka UI: http://localhost:8090"
@@ -128,7 +128,7 @@ else
     echo "Please check the connector status and logs for issues."
     echo ""
     echo "Troubleshooting commands:"
-    echo "  python scripts/kafka-connect-manager.py list"
+    echo "  python3 scripts/kafka-connect-manager.py list"
     echo "  docker logs kafka-connect"
     exit 1
 fi

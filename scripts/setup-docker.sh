@@ -94,15 +94,15 @@ build_images() {
 start_infrastructure() {
     print_status "Starting infrastructure services..."
     
-    # Start Kafka, Zookeeper, and Spark
-    docker-compose -f docker-compose.yaml up -d zookeeper kafka spark-master spark-worker
+    # Start core infrastructure services
+    docker-compose -f docker-compose.yaml up -d zookeeper kafka schema-registry spark-master spark-worker
     
     # Wait for Kafka to be ready
     print_status "Waiting for Kafka to be ready..."
     sleep 30
     
-    # Initialize Kafka topics
-    docker-compose -f docker-compose.yaml up kafka-topics-init
+    # Initialize Kafka topics and schemas
+    docker-compose -f docker-compose.yaml up kafka-topics-init schema-registry-init
     
     print_success "Infrastructure services started"
 }
@@ -111,7 +111,15 @@ start_infrastructure() {
 start_streaming() {
     print_status "Starting streaming services..."
     
-    docker-compose -f docker-compose.yaml -f docker-compose.streaming.yaml up -d streaming-producer streaming-processor
+    # Start Kafka Connect and monitoring services
+    docker-compose -f docker-compose.yaml up -d kafka-connect kafka-connect-init kafka-ui prometheus grafana
+    
+    # Wait for Kafka Connect to be ready
+    print_status "Waiting for Kafka Connect to be ready..."
+    sleep 45
+    
+    # Start streaming applications
+    docker-compose -f docker-compose.streaming.yaml up -d streaming-producer streaming-processor
     
     print_success "Streaming services started"
 }
@@ -126,7 +134,8 @@ validate_services() {
     
     # Check service status
     print_status "Checking service status..."
-    docker-compose -f docker-compose.yaml -f docker-compose.streaming.yaml ps
+    docker-compose -f docker-compose.yaml ps
+    docker-compose -f docker-compose.streaming.yaml ps
     
     # Check health endpoints
     print_status "Checking health endpoints..."
@@ -158,6 +167,8 @@ show_info() {
     echo "Processor Queries:     http://localhost:8082/queries"
     echo ""
     echo "Kafka UI:              http://localhost:8090"
+    echo "Kafka Connect API:     http://localhost:8083"
+    echo "Schema Registry:       http://localhost:8085"
     echo "Spark UI:              http://localhost:18080"
     echo "Prometheus:            http://localhost:9090"
     echo "Grafana:               http://localhost:3000 (admin/admin)"
@@ -167,12 +178,18 @@ show_info() {
     echo "  Check health:        make -f Makefile.streaming-docker health"
     echo "  Stop services:       make -f Makefile.streaming-docker down"
     echo "  Restart services:    make -f Makefile.streaming-docker restart"
+    echo ""
+    echo "Kafka Connect management:"
+    echo "  List connectors:     python3 scripts/kafka-connect-manager.py list"
+    echo "  Deploy connectors:   ./scripts/deploy-medallion-connectors.sh"
+    echo "  Test setup:          python3 scripts/validate-docker.py"
 }
 
 # Function to cleanup (for development)
 cleanup() {
     print_status "Cleaning up services..."
-    docker-compose -f docker-compose.yaml -f docker-compose.streaming.yaml down -v
+    docker-compose -f docker-compose.yaml down -v
+    docker-compose -f docker-compose.streaming.yaml down -v
     docker system prune -f
     print_success "Cleanup completed"
 }
@@ -193,6 +210,10 @@ main() {
             start_streaming
             validate_services
             show_info
+            ;;
+        "connectors")
+            print_status "Deploying Kafka Connect connectors..."
+            ./scripts/deploy-medallion-connectors.sh
             ;;
         "build")
             check_prerequisites
@@ -219,6 +240,7 @@ main() {
             echo "  setup     - Full setup (default)"
             echo "  build     - Build Docker images only"
             echo "  start     - Start services only"
+            echo "  connectors - Deploy Kafka Connect connectors"
             echo "  validate  - Validate running services"
             echo "  info      - Show service information"
             echo "  cleanup   - Clean up all services and volumes"

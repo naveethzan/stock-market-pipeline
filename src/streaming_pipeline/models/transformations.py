@@ -86,18 +86,18 @@ class StreamingTransformations:
         Returns:
             DataFrame with moving average columns
         """
-        # Define time-based windows (in seconds)
+        # Define row-based windows (approximating time periods)
         window_5min = (Window.partitionBy("symbol")
                       .orderBy(timestamp_col)
-                      .rangeBetween(-300, 0))  # 5 minutes
+                      .rowsBetween(-30, 0))  # Approximate 5 minutes
         
         window_20min = (Window.partitionBy("symbol")
                        .orderBy(timestamp_col)
-                       .rangeBetween(-1200, 0))  # 20 minutes
+                       .rowsBetween(-120, 0))  # Approximate 20 minutes
         
         window_1hour = (Window.partitionBy("symbol")
                        .orderBy(timestamp_col)
-                       .rangeBetween(-3600, 0))  # 1 hour
+                       .rowsBetween(-360, 0))  # Approximate 1 hour
         
         return (df
                 .withColumn("sma_5min", F.avg(price_col).over(window_5min))

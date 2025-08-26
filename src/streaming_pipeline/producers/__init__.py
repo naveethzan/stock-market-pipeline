@@ -1,4 +1,4 @@
 # Data producers package
-from .data_producer import DataProducer, DataProducerError, ProducerMetrics
+from .kafka_avro_producer import AvroDataProducer, AvroDataProducerError
 
-__all__ = ['DataProducer', 'DataProducerError', 'ProducerMetrics']
+__all__ = ['AvroDataProducer', 'AvroDataProducerError']

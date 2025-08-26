@@ -1,16 +1,33 @@
 # Dockerfile for Spark Structured Streaming Processor
-FROM openjdk:11-jre-slim
+FROM python:3.11-slim
 
-# Install Python and system dependencies
+# Install system dependencies including Java and Kafka libraries
 RUN apt-get update && apt-get install -y \
-    python3 \
-    python3-pip \
+    default-jre \
     wget \
     procps \
+    gcc \
+    g++ \
+    libffi-dev \
+    libssl-dev \
+    make \
+    curl \
+    librdkafka-dev \
+    librdkafka1 \
+    pkg-config \
+    build-essential \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Spark
-ENV SPARK_VERSION=3.4.1
+# Set JAVA_HOME for Java 11
+ENV JAVA_HOME=/usr/lib/jvm/default-java
+ENV PATH=$PATH:$JAVA_HOME/bin
+
+# Upgrade pip
+RUN pip3 install --upgrade pip
+
+# Install Spark (Java 17+ compatible version)
+ENV SPARK_VERSION=3.5.1
 ENV HADOOP_VERSION=3
 ENV SPARK_HOME=/opt/spark
 ENV PATH=$PATH:$SPARK_HOME/bin:$SPARK_HOME/sbin
@@ -24,8 +41,8 @@ RUN wget -q "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-
 WORKDIR /app
 
 # Copy requirements and install Python dependencies
-COPY requirements-streaming.txt requirements.txt
-RUN pip3 install --no-cache-dir -r requirements.txt
+COPY requirements-streaming.txt .
+RUN pip3 install --no-cache-dir -r requirements-streaming.txt
 
 # Copy application code
 COPY src/ src/
@@ -39,6 +56,17 @@ USER streaming
 
 # Set Python path
 ENV PYTHONPATH=/app/src
+
+# Ensure Spark uses the same Python version
+ENV PYSPARK_PYTHON=python3
+ENV PYSPARK_DRIVER_PYTHON=python3
+
+# Spark 3.5.1 with Java 17+ compatibility
+ENV SPARK_OPTS="--add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.invoke=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED --add-opens=java.base/java.net=ALL-UNNAMED --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.base/java.util.concurrent=ALL-UNNAMED --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/sun.nio.cs=ALL-UNNAMED --add-opens=java.base/sun.security.action=ALL-UNNAMED --add-opens=java.base/sun.util.calendar=ALL-UNNAMED --add-opens=java.security.jgss/sun.security.krb5=ALL-UNNAMED"
+
+# Additional Spark configuration for Java 17+ compatibility
+ENV SPARK_DRIVER_OPTS="$SPARK_OPTS"
+ENV SPARK_EXECUTOR_OPTS="$SPARK_OPTS"
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
