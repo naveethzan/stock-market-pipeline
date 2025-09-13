@@ -237,13 +237,7 @@ class AvroSerializer:
             
             serialized_data = bytes_writer.getvalue()
             
-            logger.debug(
-                "Stock quote serialized successfully",
-                extra={
-                    "symbol": transformed_data.get("symbol"),
-                    "serialized_size_bytes": len(serialized_data)
-                }
-            )
+            # Stock quote serialized successfully
             
             return serialized_data
             
@@ -321,13 +315,7 @@ class AvroSerializer:
             
             serialized_data = bytes_writer.getvalue()
             
-            logger.debug(
-                "Processed stock prices serialized successfully",
-                extra={
-                    "symbol": transformed_data.get("symbol"),
-                    "serialized_size_bytes": len(serialized_data)
-                }
-            )
+            # Processed stock prices serialized successfully
             
             return serialized_data
             
@@ -397,13 +385,7 @@ class AvroSerializer:
             
             serialized_data = bytes_writer.getvalue()
             
-            logger.debug(
-                "Processed trading volume serialized successfully",
-                extra={
-                    "symbol": transformed_data.get("symbol"),
-                    "serialized_size_bytes": len(serialized_data)
-                }
-            )
+            # Processed trading volume serialized successfully
             
             return serialized_data
             
@@ -475,13 +457,7 @@ class AvroSerializer:
             
             serialized_data = bytes_writer.getvalue()
             
-            logger.debug(
-                "Processed technical indicators serialized successfully",
-                extra={
-                    "symbol": transformed_data.get("symbol"),
-                    "serialized_size_bytes": len(serialized_data)
-                }
-            )
+            # Processed technical indicators serialized successfully
             
             return serialized_data
             
@@ -530,14 +506,7 @@ class AvroSerializer:
             
             serialized_data = bytes_writer.getvalue()
             
-            logger.debug(
-                "Data quality alert serialized successfully",
-                extra={
-                    "layer": transformed_data.get("layer"),
-                    "rule_name": transformed_data.get("rule_name"),
-                    "serialized_size_bytes": len(serialized_data)
-                }
-            )
+            # Data quality alert serialized successfully
             
             return serialized_data
             
@@ -568,14 +537,7 @@ class AvroSerializer:
             
             serialized_data = bytes_writer.getvalue()
             
-            logger.debug(
-                "Intraday data point serialized successfully",
-                extra={
-                    "symbol": data.get("symbol"),
-                    "timestamp": data.get("timestamp"),
-                    "serialized_size_bytes": len(serialized_data)
-                }
-            )
+            # Intraday data point serialized successfully
             
             return serialized_data
             
@@ -615,13 +577,7 @@ class AvroSerializer:
             
             deserialized_data = reader.read(decoder)
             
-            logger.debug(
-                "Data deserialized successfully",
-                extra={
-                    "schema_name": schema_name,
-                    "data_size_bytes": len(data)
-                }
-            )
+            # Data deserialized successfully
             
             return deserialized_data
             
@@ -718,14 +674,7 @@ class AvroKafkaProducer:
                 value_schema=self.serializer._get_avro_schema("stock_quote")
             )
             
-            logger.debug(
-                "Stock quote message produced",
-                extra={
-                    "topic": topic,
-                    "symbol": data.get("Global Quote", {}).get("01. symbol", "unknown"),
-                    "key": key
-                }
-            )
+            # Stock quote message produced
             
         except Exception as e:
             error_msg = f"Failed to produce stock quote message: {str(e)}"

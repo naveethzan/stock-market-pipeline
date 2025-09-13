@@ -1,0 +1,51 @@
+# ===============================================
+# INSTANT STREAMING PROCESSOR - BITNAMI SPARK
+# ===============================================
+# Uses pre-built Bitnami Spark - ready in minutes, not hours!
+
+FROM stock-market-pipeline-spark-base:latest
+
+# Switch to root to install app dependencies
+USER root
+
+# Copy and install Python dependencies (using Bitnami's pip)
+COPY requirements-streaming.txt .
+RUN /opt/bitnami/python/bin/pip3 install --no-cache-dir -r requirements-streaming.txt
+
+# Copy application code with proper permissions
+COPY --chown=1001:0 src/ src/
+COPY --chown=1001:0 config/ config/
+
+# Create necessary directories for Spark
+RUN mkdir -p /app/.ivy2 /app/logs /app/checkpoints && \
+    chown -R 1001:0 /app
+
+# Switch to Bitnami user
+USER 1001
+
+# Environment variables (using Bitnami paths)
+ENV JAVA_HOME=/opt/bitnami/java
+ENV SPARK_HOME=/opt/bitnami/spark
+ENV PATH=/opt/bitnami/python/bin:/opt/bitnami/java/bin:/opt/bitnami/spark/bin:/opt/bitnami/spark/sbin:$PATH
+ENV PYTHONPATH=/app/src
+ENV PYTHONUNBUFFERED=1
+ENV PYSPARK_PYTHON=/opt/bitnami/python/bin/python3
+ENV PYSPARK_DRIVER_PYTHON=/opt/bitnami/python/bin/python3
+
+# Spark-specific environment variables
+ENV SPARK_LOCAL_DIRS=/app
+ENV SPARK_WORKER_DIR=/app
+
+# Java memory options to prevent OOM in containers
+ENV JAVA_OPTS="-Xms512m -Xmx1g -Djava.io.tmpdir=/app"
+
+# Spark driver and executor options (inherit from base)
+ENV SPARK_DRIVER_OPTS="$SPARK_OPTS"
+ENV SPARK_EXECUTOR_OPTS="$SPARK_OPTS"
+
+# Health check (using Bitnami python path)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD /opt/bitnami/python/bin/python3 -c "import requests; requests.get('http://localhost:8082/health', timeout=5)" || exit 1
+
+# Default command (using Bitnami python path)
+CMD ["/opt/bitnami/python/bin/python3", "-m", "streaming_pipeline.processors.spark_processor"]

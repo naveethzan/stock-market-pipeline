@@ -1,0 +1,22 @@
+# Dockerfile for Spark Worker - Cluster Mode Optimized
+FROM bitnami/spark:3.5.1
+
+USER root
+
+# Install curl for health checks and other utilities
+RUN apt-get update && \
+    apt-get install -y curl procps net-tools && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create additional directories for cluster operations
+RUN mkdir -p /opt/bitnami/spark/work && \
+    mkdir -p /opt/bitnami/spark/conf/extra && \
+    chown -R 1001:1001 /opt/bitnami/spark/work && \
+    chown -R 1001:1001 /opt/bitnami/spark/conf/extra
+
+# Switch back to non-root user
+USER 1001
+
+# Set working directory
+WORKDIR /opt/bitnami/spark

@@ -92,7 +92,7 @@ class AlphaVantageClient:
         if current_time >= self.quota_reset_time:
             self.request_count = 0
             self.quota_reset_time = current_time + 60
-            logger.debug("Rate limit quota reset")
+            # Rate limit quota reset
         
         # Check if we've exceeded rate limit
         if self.request_count >= self.config.rate_limit_per_minute:
@@ -117,7 +117,7 @@ class AlphaVantageClient:
         
         if time_since_last < min_interval:
             sleep_time = min_interval - time_since_last
-            logger.debug(f"Enforcing minimum interval, sleeping for {sleep_time:.2f} seconds")
+            # Enforcing minimum interval
             time.sleep(sleep_time)
         
         self.last_request_time = time.time()
@@ -239,13 +239,7 @@ class AlphaVantageClient:
                 raise AlphaVantageAPIError(f"API Limit: {error_msg}", response.status_code, data)
             
             # Log successful response
-            logger.debug(
-                "Alpha Vantage API request successful",
-                extra={
-                    "request_id": request_id,
-                    "data_keys": list(data.keys()) if isinstance(data, dict) else "non-dict-response"
-                }
-            )
+            # Alpha Vantage API request successful
             
             return data
             

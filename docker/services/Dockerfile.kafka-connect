@@ -1,0 +1,56 @@
+FROM confluentinc/cp-kafka-connect:7.6.0
+
+# Switch to root to install packages and create directories
+USER root
+
+# Install connector plugins
+RUN confluent-hub install --no-prompt confluentinc/kafka-connect-s3:10.5.0
+RUN confluent-hub install --no-prompt confluentinc/kafka-connect-jdbc:10.7.6
+RUN confluent-hub install --no-prompt confluentinc/kafka-connect-avro-converter:7.6.0
+
+# Download Redshift JDBC driver
+RUN curl -L https://s3.amazonaws.com/redshift-downloads/drivers/jdbc/2.1.0.26/redshift-jdbc42-2.1.0.26.jar \
+    -o /usr/share/confluent-hub-components/confluentinc-kafka-connect-jdbc/lib/redshift-jdbc42-2.1.0.26.jar
+
+# Create directories for configuration and logs with proper permissions
+RUN mkdir -p /etc/kafka-connect/jars && \
+    mkdir -p /tmp/kafka-connect-logs && \
+    chown -R appuser:appuser /etc/kafka-connect && \
+    chown -R appuser:appuser /tmp/kafka-connect-logs
+
+# Copy configuration files
+COPY config/kafka-connect/ /etc/kafka-connect/
+
+# Set environment variables
+ENV CONNECT_BOOTSTRAP_SERVERS=kafka:9092
+ENV CONNECT_REST_PORT=8083
+ENV CONNECT_GROUP_ID=streaming-pipeline-connect-cluster
+ENV CONNECT_CONFIG_STORAGE_TOPIC=connect-configs
+ENV CONNECT_OFFSET_STORAGE_TOPIC=connect-offsets
+ENV CONNECT_STATUS_STORAGE_TOPIC=connect-status
+ENV CONNECT_KEY_CONVERTER=org.apache.kafka.connect.json.JsonConverter
+ENV CONNECT_VALUE_CONVERTER=org.apache.kafka.connect.json.JsonConverter
+ENV CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE=false
+ENV CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE=false
+ENV CONNECT_INTERNAL_KEY_CONVERTER=org.apache.kafka.connect.json.JsonConverter
+ENV CONNECT_INTERNAL_VALUE_CONVERTER=org.apache.kafka.connect.json.JsonConverter
+ENV CONNECT_REST_ADVERTISED_HOST_NAME=kafka-connect
+ENV CONNECT_LOG4J_ROOT_LOGLEVEL=INFO
+ENV CONNECT_LOG4J_LOGGERS=org.apache.kafka.connect.runtime.rest=WARN,org.reflections=ERROR
+ENV CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR=1
+ENV CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR=1
+ENV CONNECT_STATUS_STORAGE_REPLICATION_FACTOR=1
+ENV CONNECT_PLUGIN_PATH=/usr/share/java,/usr/share/confluent-hub-components
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=30s \
+  CMD curl -f http://localhost:8083/connectors || exit 1
+
+# Switch back to appuser for runtime
+USER appuser
+
+# Expose port
+EXPOSE 8083
+
+# Start Kafka Connect
+CMD ["/etc/confluent/docker/run"]

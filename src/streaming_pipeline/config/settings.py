@@ -1,6 +1,6 @@
 """
 Configuration management for streaming pipeline.
-Handles API keys, Kafka, and Snowflake connections.
+Handles API keys, Kafka, and Redshift connections.
 """
 import os
 from typing import Dict, List, Optional
@@ -62,22 +62,20 @@ class KafkaConfig:
 
 
 @dataclass
-class SnowflakeConfig:
-    """Snowflake configuration."""
-    account: str
-    user: str
-    password: str
-    warehouse: str
+class RedshiftConfig:
+    """Redshift Serverless configuration."""
+    endpoint: str
     database: str
-    schema: str
-    role: Optional[str] = None
+    port: int = 5439
+    user: str = "admin"
+    password: str = ""
+    iam_role: Optional[str] = None
     
     # Connection settings
     connection_timeout: int = 60
     network_timeout: int = 60
-    login_timeout: int = 60
     
-    # S3 settings for Snowpipe
+    # S3 settings for data loading
     s3_bucket: str = ""
     s3_prefix: str = "streaming-pipeline"
     s3_region: str = "us-east-1"
@@ -130,7 +128,7 @@ class ConfigManager:
         """Load configuration from environment variables and config file."""
         self.alpha_vantage = self._load_alpha_vantage_config()
         self.kafka = self._load_kafka_config()
-        self.snowflake = self._load_snowflake_config()
+        self.redshift = self._load_redshift_config()
         self.spark = self._load_spark_config()
         self.monitoring = self._load_monitoring_config()
         
@@ -194,32 +192,34 @@ class ConfigManager:
             data_quality_alerts_topic=os.getenv("KAFKA_DATA_QUALITY_ALERTS_TOPIC", "data-quality-alerts")
         )
     
-    def _load_snowflake_config(self) -> SnowflakeConfig:
-        """Load Snowflake configuration."""
-        # If Alpha Vantage is in mock mode, make Snowflake config optional
+    def _load_redshift_config(self) -> RedshiftConfig:
+        """Load Redshift configuration."""
+        # If Alpha Vantage is in mock mode, make Redshift config optional
         mock_mode = os.getenv("ALPHA_VANTAGE_MOCK_MODE", "false").lower() == "true"
         
-        required_fields = ["SNOWFLAKE_ACCOUNT", "SNOWFLAKE_USER", "SNOWFLAKE_PASSWORD", 
-                          "SNOWFLAKE_WAREHOUSE", "SNOWFLAKE_DATABASE", "SNOWFLAKE_SCHEMA"]
+        # Core required fields
+        required_fields = ["REDSHIFT_ENDPOINT", "REDSHIFT_DATABASE", "REDSHIFT_USER"]
+        
+        # Password is required for authentication
+        if not os.getenv("REDSHIFT_PASSWORD"):
+            required_fields.append("REDSHIFT_PASSWORD")
         
         missing_fields = [field for field in required_fields if not os.getenv(field)]
         
-        # If in mock mode, Snowflake config is optional
+        # If in mock mode, Redshift config is optional
         if mock_mode:
             # If any fields are missing, use mock defaults
             if missing_fields:
-                return SnowflakeConfig(
-                    account="mock_account",
+                return RedshiftConfig(
+                    endpoint="mock-endpoint.redshift-serverless.amazonaws.com",
+                    database="mock_database",
+                    port=5439,
                     user="mock_user",
                     password="mock_password",
-                    warehouse="mock_warehouse",
-                    database="mock_database",
-                    schema="mock_schema",
-                    role="mock_role",
+                    iam_role="mock_role",
                     
                     connection_timeout=60,
                     network_timeout=60,
-                    login_timeout=60,
                     
                     s3_bucket="mock_bucket",
                     s3_prefix="mock_prefix",
@@ -227,18 +227,16 @@ class ConfigManager:
                 )
             # If all fields are present, use them even in mock mode
             else:
-                return SnowflakeConfig(
-                    account=os.getenv("SNOWFLAKE_ACCOUNT"),
-                    user=os.getenv("SNOWFLAKE_USER"),
-                    password=os.getenv("SNOWFLAKE_PASSWORD"),
-                    warehouse=os.getenv("SNOWFLAKE_WAREHOUSE"),
-                    database=os.getenv("SNOWFLAKE_DATABASE"),
-                    schema=os.getenv("SNOWFLAKE_SCHEMA"),
-                    role=os.getenv("SNOWFLAKE_ROLE"),
+                return RedshiftConfig(
+                    endpoint=os.getenv("REDSHIFT_ENDPOINT"),
+                    database=os.getenv("REDSHIFT_DATABASE"),
+                    port=int(os.getenv("REDSHIFT_PORT", "5439")),
+                    user=os.getenv("REDSHIFT_USER"),
+                    password=os.getenv("REDSHIFT_PASSWORD"),
+                    iam_role=os.getenv("REDSHIFT_IAM_ROLE"),
                     
-                    connection_timeout=int(os.getenv("SNOWFLAKE_CONNECTION_TIMEOUT", "60")),
-                    network_timeout=int(os.getenv("SNOWFLAKE_NETWORK_TIMEOUT", "60")),
-                    login_timeout=int(os.getenv("SNOWFLAKE_LOGIN_TIMEOUT", "60")),
+                    connection_timeout=int(os.getenv("REDSHIFT_CONNECTION_TIMEOUT", "60")),
+                    network_timeout=int(os.getenv("REDSHIFT_NETWORK_TIMEOUT", "60")),
                     
                     s3_bucket=os.getenv("S3_BUCKET", ""),
                     s3_prefix=os.getenv("S3_PREFIX", "streaming-pipeline"),
@@ -247,20 +245,18 @@ class ConfigManager:
         else:
             # In production mode, all fields are required
             if missing_fields:
-                raise ValueError(f"Missing required Snowflake environment variables: {missing_fields}")
+                raise ValueError(f"Missing required Redshift environment variables: {missing_fields}")
             
-            return SnowflakeConfig(
-                account=os.getenv("SNOWFLAKE_ACCOUNT"),
-                user=os.getenv("SNOWFLAKE_USER"),
-                password=os.getenv("SNOWFLAKE_PASSWORD"),
-                warehouse=os.getenv("SNOWFLAKE_WAREHOUSE"),
-                database=os.getenv("SNOWFLAKE_DATABASE"),
-                schema=os.getenv("SNOWFLAKE_SCHEMA"),
-                role=os.getenv("SNOWFLAKE_ROLE"),
+            return RedshiftConfig(
+                endpoint=os.getenv("REDSHIFT_ENDPOINT"),
+                database=os.getenv("REDSHIFT_DATABASE"),
+                port=int(os.getenv("REDSHIFT_PORT", "5439")),
+                user=os.getenv("REDSHIFT_USER"),
+                password=os.getenv("REDSHIFT_PASSWORD"),
+                iam_role=os.getenv("REDSHIFT_IAM_ROLE"),
                 
-                connection_timeout=int(os.getenv("SNOWFLAKE_CONNECTION_TIMEOUT", "60")),
-                network_timeout=int(os.getenv("SNOWFLAKE_NETWORK_TIMEOUT", "60")),
-                login_timeout=int(os.getenv("SNOWFLAKE_LOGIN_TIMEOUT", "60")),
+                connection_timeout=int(os.getenv("REDSHIFT_CONNECTION_TIMEOUT", "60")),
+                network_timeout=int(os.getenv("REDSHIFT_NETWORK_TIMEOUT", "60")),
                 
                 s3_bucket=os.getenv("S3_BUCKET", ""),
                 s3_prefix=os.getenv("S3_PREFIX", "streaming-pipeline"),
@@ -357,22 +353,19 @@ class ConfigManager:
         
         return config
     
-    def get_snowflake_connection_params(self) -> Dict[str, any]:
-        """Get Snowflake connection parameters."""
+    def get_redshift_connection_params(self) -> Dict[str, any]:
+        """Get Redshift connection parameters."""
         params = {
-            'account': self.snowflake.account,
-            'user': self.snowflake.user,
-            'password': self.snowflake.password,
-            'warehouse': self.snowflake.warehouse,
-            'database': self.snowflake.database,
-            'schema': self.snowflake.schema,
-            'connection_timeout': self.snowflake.connection_timeout,
-            'network_timeout': self.snowflake.network_timeout,
-            'login_timeout': self.snowflake.login_timeout
+            'host': self.redshift.endpoint,
+            'port': self.redshift.port,
+            'user': self.redshift.user,
+            'password': self.redshift.password,
+            'dbname': self.redshift.database,
+            'connect_timeout': self.redshift.connection_timeout
         }
         
-        if self.snowflake.role:
-            params['role'] = self.snowflake.role
+        if self.redshift.iam_role:
+            params['iam_role'] = self.redshift.iam_role
         
         return params
     
@@ -390,17 +383,16 @@ class ConfigManager:
 
 
 class Settings:
-    """Settings class for Snowflake integration"""
+    """Settings class for Redshift integration"""
     
     def __init__(self):
-        # Snowflake settings
-        self.snowflake_account = os.getenv("SNOWFLAKE_ACCOUNT")
-        self.snowflake_user = os.getenv("SNOWFLAKE_USER")
-        self.snowflake_password = os.getenv("SNOWFLAKE_PASSWORD")
-        self.snowflake_warehouse = os.getenv("SNOWFLAKE_WAREHOUSE", "STOCK_WH")
-        self.snowflake_database = os.getenv("SNOWFLAKE_DATABASE", "STOCK_MARKET")
-        self.snowflake_schema = os.getenv("SNOWFLAKE_SCHEMA", "STREAMING")
-        self.snowflake_role = os.getenv("SNOWFLAKE_ROLE", "SYSADMIN")
+        # Redshift settings
+        self.redshift_endpoint = os.getenv("REDSHIFT_ENDPOINT")
+        self.redshift_port = int(os.getenv("REDSHIFT_PORT", "5439"))
+        self.redshift_user = os.getenv("REDSHIFT_USER", "admin")
+        self.redshift_password = os.getenv("REDSHIFT_PASSWORD")
+        self.redshift_database = os.getenv("REDSHIFT_DATABASE", "stockmarket")
+        self.redshift_iam_role = os.getenv("REDSHIFT_IAM_ROLE")
         
         # AWS/S3 settings
         self.s3_bucket_name = os.getenv("S3_BUCKET_NAME")

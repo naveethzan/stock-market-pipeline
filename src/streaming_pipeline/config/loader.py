@@ -91,18 +91,16 @@ def validate_configuration(config: ConfigManager) -> bool:
         logger.error("Kafka bootstrap servers are not configured")
         is_valid = False
     
-    # Validate Snowflake configuration
-    required_snowflake_fields = [
-        config.snowflake.account,
-        config.snowflake.user,
-        config.snowflake.password,
-        config.snowflake.warehouse,
-        config.snowflake.database,
-        config.snowflake.schema
+    # Validate Redshift configuration
+    required_redshift_fields = [
+        config.redshift.endpoint,
+        config.redshift.database,
+        config.redshift.user,
+        config.redshift.password
     ]
     
-    if any(not field or field.startswith("your_") for field in required_snowflake_fields):
-        logger.error("Snowflake configuration is incomplete")
+    if any(not field or str(field).startswith("your_") or str(field).startswith("mock_") for field in required_redshift_fields):
+        logger.error("Redshift configuration is incomplete")
         is_valid = False
     
     # Validate stock symbols

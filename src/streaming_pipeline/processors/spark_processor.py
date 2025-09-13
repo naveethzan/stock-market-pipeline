@@ -18,9 +18,20 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse, Response
 import uvicorn
 
-from ..config.settings import ConfigManager
-from ..config.loader import initialize_configuration
-from .stream_processor import StreamProcessor, StreamProcessorError
+# Import handling for both relative (when imported) and absolute (when run as main)
+if __name__ == '__main__':
+    # Running directly via spark-submit - use absolute imports
+    import sys
+    import os
+    sys.path.insert(0, '/app/src')
+    from streaming_pipeline.config.settings import ConfigManager
+    from streaming_pipeline.config.loader import initialize_configuration
+    from streaming_pipeline.processors.stream_processor import StreamProcessor, StreamProcessorError
+else:
+    # Imported as module - use relative imports
+    from ..config.settings import ConfigManager
+    from ..config.loader import initialize_configuration
+    from .stream_processor import StreamProcessor, StreamProcessorError
 
 
 # Configure logging
@@ -87,7 +98,7 @@ class ProcessorService:
                 f"Stock quotes streaming query started: {quotes_query.id}"
             )
             
-            # TODO: Add more streaming queries as needed
+            # Additional streaming queries can be added here
             # - Intraday data processing
             # - Market events processing
             # - Aggregation queries
@@ -450,11 +461,11 @@ def main():
         processor_thread.start()
         
         # Start health check server
-        logger.info("Starting health check server on port 8080")
+        logger.info("Starting health check server on port 8082")
         uvicorn.run(
             app,
             host="0.0.0.0",
-            port=8080,
+            port=8082,
             log_level="info",
             access_log=True
         )

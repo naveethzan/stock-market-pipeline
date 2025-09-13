@@ -1,0 +1,61 @@
+# ===============================================
+# INSTANT SPARK BASE IMAGE - NO BUILD TIME!
+# ===============================================
+# Uses pre-built Bitnami Spark image - ready in seconds!
+
+FROM bitnami/spark:3.5.1
+
+# Switch to root to install additional dependencies
+USER root
+
+# Install build tools needed for Python packages (librdkafka for Kafka support)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    libffi-dev \
+    libssl-dev \
+    make \
+    librdkafka-dev \
+    librdkafka1 \
+    pkg-config \
+    build-essential \
+    python3-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Use Bitnami's pip (already installed and optimized)
+RUN /opt/bitnami/python/bin/pip3 install --upgrade pip --no-cache-dir
+
+# Set environment variables with correct Bitnami paths
+ENV JAVA_HOME=/opt/bitnami/java
+ENV SPARK_HOME=/opt/bitnami/spark
+ENV PATH=/opt/bitnami/python/bin:/opt/bitnami/java/bin:/opt/bitnami/spark/bin:/opt/bitnami/spark/sbin:$PATH
+ENV PYTHONPATH=/app/src
+ENV PYTHONUNBUFFERED=1
+ENV PYSPARK_PYTHON=/opt/bitnami/python/bin/python3
+ENV PYSPARK_DRIVER_PYTHON=/opt/bitnami/python/bin/python3
+
+# Java compatibility options (Bitnami uses OpenJDK)
+ENV SPARK_OPTS="--add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.invoke=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED --add-opens=java.base/java.net=ALL-UNNAMED --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.base/java.util.concurrent=ALL-UNNAMED --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/sun.nio.cs=ALL-UNNAMED --add-opens=java.base/sun.security.action=ALL-UNNAMED --add-opens=java.base/sun.util.calendar=ALL-UNNAMED --add-opens=java.security.jgss/sun.security.krb5=ALL-UNNAMED"
+
+# Pre-install Spark Kafka and Avro packages to avoid runtime downloads
+RUN mkdir -p /opt/spark-jars && \
+    cd /opt/spark-jars && \
+    curl -O https://repo1.maven.org/maven2/org/apache/spark/spark-sql-kafka-0-10_2.12/3.5.1/spark-sql-kafka-0-10_2.12-3.5.1.jar && \
+    curl -O https://repo1.maven.org/maven2/org/apache/spark/spark-avro_2.12/3.5.1/spark-avro_2.12-3.5.1.jar && \
+    curl -O https://repo1.maven.org/maven2/org/apache/kafka/kafka-clients/3.4.0/kafka-clients-3.4.0.jar && \
+    curl -O https://repo1.maven.org/maven2/org/apache/spark/spark-token-provider-kafka-0-10_2.12/3.5.1/spark-token-provider-kafka-0-10_2.12-3.5.1.jar && \
+    curl -O https://repo1.maven.org/maven2/org/apache/commons/commons-pool2/2.11.1/commons-pool2-2.11.1.jar
+
+# Add jars to Spark classpath
+ENV SPARK_DIST_CLASSPATH=/opt/spark-jars/*:$SPARK_DIST_CLASSPATH
+
+# Create app directory with correct permissions
+RUN mkdir -p /app && chown -R 1001:0 /app
+WORKDIR /app
+
+# Switch back to Bitnami user (UID 1001, GID 0)
+USER 1001
+
+CMD ["/bin/bash"]

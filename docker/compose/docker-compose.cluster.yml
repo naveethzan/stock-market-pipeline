@@ -1,0 +1,223 @@
+# Spark Cluster Mode Configuration - Production Ready
+# Optimized distributed processing for streaming pipeline
+
+services:
+  # Spark Master Node (Cluster Coordinator)
+  spark-master:
+    build:
+      context: ../..
+      dockerfile: docker/services/Dockerfile.spark-worker
+    container_name: spark-master
+    hostname: spark-master
+    env_file:
+      - ../../config/.env
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+      # Cluster optimizations
+      - SPARK_MASTER_OPTS=-Dspark.deploy.recoveryMode=NONE
+      - SPARK_DAEMON_MEMORY=512m
+    ports:
+      - "8080:8080"    # Master Web UI
+      - "7077:7077"    # Master Port
+    volumes:
+      - spark-master-data:/opt/bitnami/spark/logs
+      - ../../data/spark:/opt/bitnami/spark/work
+      - ../../config:/opt/bitnami/spark/conf/extra:ro
+    networks:
+      - streaming-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+
+  # Spark Worker Node 1 (Processing Unit)
+  spark-worker-1:
+    build:
+      context: ../..
+      dockerfile: docker/services/Dockerfile.spark-worker
+    container_name: spark-worker-1
+    hostname: spark-worker-1
+    env_file:
+      - ../../config/.env
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=2g
+      - SPARK_WORKER_CORES=2
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+      - SPARK_WORKER_WEBUI_PORT=8181
+      - SPARK_WORKER_DIR=/opt/bitnami/spark/work
+      - SPARK_DAEMON_MEMORY=256m
+    ports:
+      - "8181:8181"    # Worker 1 Web UI
+    volumes:
+      - spark-worker-1-data:/opt/bitnami/spark/logs
+      - spark-worker-1-work:/opt/bitnami/spark/work
+      - ../../data/spark:/opt/bitnami/spark/shared
+      - ../../config:/opt/bitnami/spark/conf/extra:ro
+    networks:
+      - streaming-network
+    depends_on:
+      - spark-master
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: "2.0"
+        reservations:
+          memory: 1.5G
+          cpus: "1.0"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8181"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Spark Worker Node 2 (Processing Unit)
+  spark-worker-2:
+    build:
+      context: ../..
+      dockerfile: docker/services/Dockerfile.spark-worker
+    container_name: spark-worker-2
+    hostname: spark-worker-2
+    env_file:
+      - ../../config/.env
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=2g
+      - SPARK_WORKER_CORES=2
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
+      - SPARK_WORKER_WEBUI_PORT=8182
+      - SPARK_WORKER_DIR=/opt/bitnami/spark/work
+      - SPARK_DAEMON_MEMORY=256m
+    ports:
+      - "8182:8182"    # Worker 2 Web UI
+    volumes:
+      - spark-worker-2-data:/opt/bitnami/spark/logs
+      - spark-worker-2-work:/opt/bitnami/spark/work
+      - ../../data/spark:/opt/bitnami/spark/shared
+      - ../../config:/opt/bitnami/spark/conf/extra:ro
+    networks:
+      - streaming-network
+    depends_on:
+      - spark-master
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: "2.0"
+        reservations:
+          memory: 1.5G
+          cpus: "1.0"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8182"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Streaming Processor (Spark Driver) - Cluster Mode
+  streaming-processor:
+    build:
+      context: ../..
+      dockerfile: docker/services/Dockerfile.streaming-processor
+    container_name: streaming-processor
+    depends_on:
+      spark-master:
+        condition: service_healthy
+      spark-worker-1:
+        condition: service_healthy
+      spark-worker-2:
+        condition: service_healthy
+    env_file:
+      - ../../config/.env
+    environment:
+      # Spark Cluster Configuration
+      - SPARK_MASTER=spark://spark-master:7077
+      - SPARK_DRIVER_MEMORY=1g
+      - SPARK_EXECUTOR_MEMORY=2g
+      - SPARK_EXECUTOR_CORES=2
+      - SPARK_EXECUTOR_INSTANCES=2
+      - SPARK_DRIVER_HOST=streaming-processor
+      
+      # Optimized Spark configurations
+      - SPARK_DEFAULT_PARALLELISM=4
+      - SPARK_SQL_SHUFFLE_PARTITIONS=4
+      - SPARK_TRIGGER_PROCESSING_TIME=30s
+      - SPARK_WATERMARK_DELAY=1 minute
+      
+      # Performance optimizations
+      - SPARK_CONF_spark_sql_adaptive_enabled=true
+      - SPARK_CONF_spark_sql_adaptive_coalescePartitions_enabled=true
+      - SPARK_CONF_spark_sql_adaptive_coalescePartitions_minPartitionNum=1
+      - SPARK_CONF_spark_serializer=org.apache.spark.serializer.KryoSerializer
+      - SPARK_CONF_spark_sql_streaming_maxBatchesToRetainInMemory=3
+      - SPARK_CONF_spark_network_timeout=800s
+      - SPARK_CONF_spark_executor_heartbeatInterval=60s
+      
+      # Application environment
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SPARK_CHECKPOINT_LOCATION=/app/checkpoints
+      - PYTHONPATH=/app/src
+      - OUTPUT_BASE_PATH=/app/data/output
+    # Use default container command
+    volumes:
+      - ../../logs:/app/logs
+      - ../../checkpoints:/app/checkpoints
+      - ./data:/app/data
+      - ../../src:/app/src:ro
+      - ../../config:/app/config:ro
+    ports:
+      - "8082:8080"  # Health check endpoint
+      - "4040:4040"  # Spark Application UI
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import requests; requests.get('http://localhost:8082/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s  # Longer start period for cluster initialization
+    networks:
+      - streaming-network
+    deploy:
+      resources:
+        limits:
+          memory: 1.5G
+          cpus: "1.0"
+        reservations:
+          memory: 1G
+          cpus: "0.5"
+
+volumes:
+  spark-master-data:
+    driver: local
+  spark-worker-1-data:
+    driver: local
+  spark-worker-1-work:
+    driver: local
+  spark-worker-2-data:
+    driver: local
+  spark-worker-2-work:
+    driver: local
+
+networks:
+  streaming-network:
+    external: true
+    name: stock-market-pipeline_streaming-network

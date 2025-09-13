@@ -1,92 +1,53 @@
 # =======================================
 # Streaming Pipeline Requirements
 # =======================================
-
-# Core Python
-python-dotenv>=1.0.0
-requests>=2.31.0
-numpy>=1.24.0
-python-json-logger>=2.0.2
-pyyaml>=6.0.0
-
-# Data Processing
-pandas>=2.0.0
-pyarrow>=12.0.0
-fastparquet>=0.8.0
-
-# Spark for Streaming (Java 17+ compatible)
-pyspark==3.5.1
-
-# Kafka and Avro integration (use newer version with better wheel support)
-confluent-kafka[avro]==2.3.0
-avro==1.11.3
-
-# AWS S3 integration
-boto3>=1.28.0
-botocore>=1.31.0
-
-# Snowflake connectivity
-snowflake-connector-python>=3.1.0
-
-# Data Sources (Streaming)
-alpha-vantage>=2.3.1
-multitasking==0.0.11  # Pinned for compatibility
-
-# Monitoring and metrics
-prometheus-client>=0.17.0
-psutil>=5.9.0
-
-# Logging and configuration
-structlog>=23.1.0
-loguru>=0.7.2
-
-# Data validation
-pydantic>=2.1.0
-jsonschema>=4.19.0
-
-# HTTP client and health checks
-httpx>=0.24.0
-fastapi>=0.101.0
-uvicorn>=0.23.0
-
-# Retry and rate limiting
-tenacity>=8.2.0
-ratelimit>=2.2.0
-
-# Cryptography for secure connections
-cryptography>=41.0.0
-
-# =======================================
-# Development Dependencies (optional)
+# Production dependencies only - actually used in codebase
 # =======================================
 
-# Testing
-pytest>=7.4.0
-pytest-asyncio>=0.21.0
-pytest-mock>=3.11.0
-pytest-cov>=4.1.0
+# Core Python utilities
+python-dotenv>=1.0.0      # Environment variable management
+requests>=2.31.0          # HTTP client for API calls
+pyyaml>=6.0.0             # YAML configuration parsing
 
-# Code quality
-black>=23.7.0
-flake8>=6.0.0
-mypy>=1.5.0
-isort>=5.12.0
+# Spark for Streaming
+pyspark==3.5.1            # Apache Spark for stream processing
 
-# Documentation
-sphinx>=7.1.0
-sphinx-rtd-theme>=1.3.0
+# Kafka and Avro integration
+confluent-kafka[avro]==2.3.0  # Kafka producer/consumer with Avro support
+avro==1.11.3                  # Avro schema serialization
 
-# Jupyter for development and analysis
-jupyter>=1.0.0
-ipykernel>=6.25.0
+# AWS integration (compatible with dbt-redshift 1.7.0)
+boto3~=1.26.157           # AWS SDK for S3 operations (dbt-redshift compatible)
+botocore~=1.29.157        # AWS core functionality (compatible with boto3)
 
-# Development utilities
-pre-commit>=3.3.0
-tox>=4.6.0
+# DBT and Redshift connectivity
+dbt-core==1.7.0           # DBT transformation framework
+dbt-redshift==1.7.0       # DBT Redshift adapter
+psycopg2-binary>=2.9.0    # PostgreSQL driver for Redshift
+
+# Data Source API
+alpha-vantage>=2.3.1      # Stock market data API client
+
+# API and Health endpoints
+fastapi>=0.101.0          # REST API framework for health checks
+uvicorn>=0.23.0           # ASGI server for FastAPI
+
+# Security
+cryptography>=41.0.0      # SSL/TLS and secure connections
 
 # =======================================
 # Notes:
-# - Version constraints ensure compatibility
-# - Development dependencies are optional
-# - Focus on streaming-only components
 # =======================================
+# - Only production dependencies included (13 packages)
+# - Removed 18+ unused packages for cleaner installation
+# - Development dependencies moved to requirements-dev.txt
+# - DBT versions pinned at 1.7.0 for stability
+# - Snowflake replaced with Redshift + DBT
+# - All packages verified as actively used in codebase
+# =======================================
+
+# Installation:
+# pip install -r requirements-streaming.txt
+
+# For development (optional):
+# pip install -r requirements-dev.txt

@@ -208,7 +208,7 @@ class ProducerService:
                 sleep_time = max(0, production_interval - cycle_duration)
                 
                 if sleep_time > 0:
-                    logger.debug(f"Sleeping for {sleep_time:.2f} seconds until next cycle")
+                    # Sleeping until next cycle
                     if shutdown_event.wait(sleep_time):
                         break  # Shutdown requested
                 else:

@@ -1,0 +1,269 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    hostname: zookeeper
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - ../../data/zookeeper/data:/var/lib/zookeeper/data
+      - ../../data/zookeeper/log:/var/lib/zookeeper/log
+    restart: always
+    networks:
+      - streaming-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    hostname: kafka
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - ../../data/kafka:/var/lib/kafka/data
+    restart: always
+    networks:
+      - streaming-network
+
+  # Schema Registry for Avro schema management
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.0
+    hostname: schema-registry
+    container_name: schema-registry
+    depends_on:
+      - kafka
+    ports:
+      - "8085:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_TOPIC: _schemas
+      SCHEMA_REGISTRY_DEBUG: "true"
+    volumes:
+      - ../../data/schema-registry:/var/lib/schema-registry
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/subjects"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - streaming-network
+
+  kafka-topics-init:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: kafka-topics-init
+    depends_on:
+      - kafka
+      - schema-registry
+    entrypoint: ["/bin/bash", "-c"]
+    command: |
+      set -e
+
+      # Wait for Kafka to be ready
+      /usr/bin/cub kafka-ready -b kafka:9092 1 60
+
+      # Wait for Schema Registry to be ready
+      echo "Waiting for Schema Registry..."
+      while ! curl -s http://schema-registry:8081/subjects > /dev/null; do
+        echo "Schema Registry not ready, waiting..."
+        sleep 5
+      done
+      echo "Schema Registry is ready!"
+
+      # Create topics idempotently
+      /usr/bin/kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic stock-data-stream --partitions 1 --replication-factor 1 || true
+      
+      # Create streaming pipeline topics
+      /usr/bin/kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic stock-quotes-realtime --partitions 3 --replication-factor 1 || true
+      /usr/bin/kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic stock-intraday-data --partitions 3 --replication-factor 1 || true
+      
+      # Create processed data topics for medallion architecture
+      /usr/bin/kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic processed-stock-prices --partitions 3 --replication-factor 1 || true
+      /usr/bin/kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic processed-trading-volume --partitions 3 --replication-factor 1 || true
+      /usr/bin/kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic processed-technical-indicators --partitions 3 --replication-factor 1 || true
+      /usr/bin/kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic data-quality-alerts --partitions 1 --replication-factor 1 || true
+
+      echo "Streaming pipeline topics created successfully."
+    restart: "no"
+    networks:
+      - streaming-network
+
+  # Schema Registry initialization
+  schema-registry-init:
+    build:
+      context: ../..
+      dockerfile: docker/services/Dockerfile.streaming-producer  # Reuse producer image for Python
+    container_name: schema-registry-init
+    depends_on:
+      schema-registry:
+        condition: service_healthy
+    environment:
+      - PYTHONPATH=/app/src
+    volumes:
+      - ../../src:/app/src
+      - ../../scripts:/app/scripts
+    command: ["python", "/app/scripts/init-schema-registry.py", "--schema-registry-url", "http://schema-registry:8081"]
+    restart: "no"
+    networks:
+      - streaming-network
+
+  # Spark services removed - using cluster mode only (docker-compose.cluster.yml)
+
+  # Streaming Pipeline Services
+  
+  # Alpha Vantage Data Producer
+  streaming-producer:
+    build:
+      context: ../..
+      dockerfile: docker/services/Dockerfile.streaming-producer
+    container_name: streaming-producer
+    depends_on:
+      kafka:
+        condition: service_started
+      kafka-topics-init:
+        condition: service_completed_successfully
+    env_file:
+      - ../../config/.env
+      # Optionally load mock environment file if it exists
+      # Use: docker-compose --env-file .env.mock up streaming-producer
+      # Or copy .env.mock to .env.local and uncomment the line below:
+      # - ./.env.local
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SCHEMA_REGISTRY_URL=http://schema-registry:8081
+      - PYTHONPATH=/app/src
+      - PRODUCTION_INTERVAL_SECONDS=${PRODUCTION_INTERVAL_SECONDS:-60}
+      - OUTPUT_BASE_PATH=/app/data/output
+      # Mock mode configuration (override in .env files as needed)
+      - ALPHA_VANTAGE_MOCK_MODE=${ALPHA_VANTAGE_MOCK_MODE:-false}
+    volumes:
+      - ../../logs:/app/logs
+      - ./data:/app/data
+      - ../../src:/app/src:ro
+      - ../../config:/app/config:ro
+    ports:
+      - "8081:8080"  # Producer health endpoint
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - streaming-network
+
+  # Streaming processor removed - using cluster mode only (docker-compose.cluster.yml)
+
+  # Kafka Connect for medallion architecture
+  kafka-connect:
+    build:
+      context: ../..
+      dockerfile: docker/services/Dockerfile.kafka-connect
+    container_name: kafka-connect
+    depends_on:
+      kafka:
+        condition: service_started
+      schema-registry:
+        condition: service_healthy
+      kafka-topics-init:
+        condition: service_completed_successfully
+    ports:
+      - "8083:8083"
+    env_file:
+      - ../../config/.env
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: kafka:9092
+      CONNECT_REST_PORT: 8083
+      CONNECT_GROUP_ID: streaming-pipeline-connect-cluster
+      CONNECT_CONFIG_STORAGE_TOPIC: connect-configs
+      CONNECT_OFFSET_STORAGE_TOPIC: connect-offsets
+      CONNECT_STATUS_STORAGE_TOPIC: connect-status
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
+      CONNECT_LOG4J_ROOT_LOGLEVEL: INFO
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components
+      # AWS credentials for S3 connectors (optional, set to empty for local development)
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+    volumes:
+      - ./config/kafka-connect:/etc/kafka-connect
+      - ./logs/kafka-connect:/var/log/kafka-connect
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/connectors"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - streaming-network
+
+  # Kafka Connect topics initialization
+  kafka-connect-init:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: kafka-connect-init
+    depends_on:
+      kafka-connect:
+        condition: service_healthy
+    volumes:
+      - ./config/kafka-connect:/scripts
+    command: ["/bin/bash", "/scripts/dead-letter-queue-topics.sh"]
+    restart: "no"
+    networks:
+      - streaming-network
+
+  # Kafka UI for monitoring
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    depends_on:
+      - kafka
+      - kafka-connect
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: streaming-pipeline-connect
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://kafka-connect:8083
+    restart: unless-stopped
+    networks:
+      - streaming-network
+
+
+
+networks:
+  streaming-network:
+    driver: bridge
+
+volumes:
+
+  streaming-logs:
+  streaming-checkpoints:
+  streaming-data:

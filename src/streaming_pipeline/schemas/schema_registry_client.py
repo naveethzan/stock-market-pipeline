@@ -88,13 +88,7 @@ class SchemaRegistryClient:
         """
         url = f"{self.base_url}{endpoint}"
         
-        logger.debug(
-            f"Making {method} request to Schema Registry",
-            extra={
-                "url": url,
-                "has_data": data is not None
-            }
-        )
+        # Making request to Schema Registry
         
         try:
             if method.upper() == 'GET':
@@ -202,7 +196,7 @@ class SchemaRegistryClient:
         Returns:
             Schema data
         """
-        logger.debug(f"Retrieving schema by ID: {schema_id}")
+        # Retrieving schema by ID
         
         response = self._make_request('GET', f'/schemas/ids/{schema_id}')
         schema_str = response.get('schema')
@@ -222,7 +216,7 @@ class SchemaRegistryClient:
         Returns:
             Schema data with metadata
         """
-        logger.debug(f"Retrieving latest schema for subject: {subject}")
+        # Retrieving latest schema for subject
         
         response = self._make_request('GET', f'/subjects/{subject}/versions/latest')
         
@@ -240,7 +234,7 @@ class SchemaRegistryClient:
         Returns:
             List of subject names
         """
-        logger.debug("Listing all subjects")
+        # Listing all subjects
         
         response = self._make_request('GET', '/subjects')
         return response if isinstance(response, list) else []
@@ -256,7 +250,7 @@ class SchemaRegistryClient:
         Returns:
             True if compatible, False otherwise
         """
-        logger.debug(f"Checking compatibility for subject: {subject}")
+        # Checking compatibility for subject
         
         data = {"schema": json.dumps(schema)}
         

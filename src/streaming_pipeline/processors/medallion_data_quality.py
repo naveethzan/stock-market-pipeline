@@ -98,10 +98,10 @@ class MedallionDataQualityValidator:
                 signal.alarm(0)  # Cancel alarm
             
             execution_time = time.time() - start_time
-            self.logger.debug(f"Operation '{operation_name}' completed in {execution_time:.2f}s")
+            # Operation completed successfully
             return result
             
-        except (TimeoutError, InterruptedException) as e:
+        except (TimeoutError, KeyboardInterrupt) as e:
             self.logger.warning(f"Operation '{operation_name}' failed with timeout/interruption: {str(e)}")
             return fallback_value
         except Exception as e:
@@ -116,7 +116,7 @@ class MedallionDataQualityValidator:
         if cache_key in self.validation_cache:
             cached_result, cache_time = self.validation_cache[cache_key]
             if time.time() - cache_time < self.cache_ttl_seconds:
-                self.logger.debug(f"Using cached validation result for: {cache_key}")
+                # Using cached validation result
                 return cached_result
             else:
                 # Remove expired cache entry
@@ -126,7 +126,7 @@ class MedallionDataQualityValidator:
     def _cache_validation_result(self, cache_key: str, result: List[LayerValidationResult]):
         """Cache validation result with timestamp."""
         self.validation_cache[cache_key] = (result, time.time())
-        self.logger.debug(f"Cached validation result for: {cache_key}")
+        # Cached validation result
     
     def _estimate_dataframe_count(self, df: DataFrame) -> int:
         """
@@ -151,8 +151,7 @@ class MedallionDataQualityValidator:
                 estimated_records_per_partition = 200  # Conservative estimate
                 estimated_count = num_partitions * estimated_records_per_partition
                 
-                self.logger.debug(f"Estimated count using partitions: {estimated_count} "
-                                f"({num_partitions} partitions × {estimated_records_per_partition} records/partition)")
+                # Estimated count using partitions
                 return estimated_count
             else:
                 # Fallback for edge cases
@@ -335,7 +334,7 @@ class MedallionDataQualityValidator:
                 # For small datasets, sample more aggressively
                 sample_fraction = 0.3
             
-            self.logger.debug(f"Checking data completeness using {sample_fraction:.1%} sampling")
+            # Checking data completeness
             
             # Sample the DataFrame to avoid blocking operations
             sample_df = df.sample(fraction=sample_fraction, seed=42)
@@ -406,7 +405,7 @@ class MedallionDataQualityValidator:
             if total_count < 100:
                 sample_fraction = 0.25  # Higher sampling for smaller datasets
             
-            self.logger.debug(f"Checking Kafka metadata using {sample_fraction:.1%} sampling")
+            # Checking Kafka metadata
             
             # Sample the DataFrame
             sample_df = df.sample(fraction=sample_fraction, seed=42)
@@ -454,7 +453,7 @@ class MedallionDataQualityValidator:
             if total_count < 100:
                 sample_fraction = 0.25  # Higher sampling for smaller datasets
             
-            self.logger.debug(f"Checking timestamp validity using {sample_fraction:.1%} sampling")
+            # Checking timestamp validity
             
             # Sample the DataFrame
             sample_df = df.sample(fraction=sample_fraction, seed=42)
@@ -504,7 +503,7 @@ class MedallionDataQualityValidator:
             if total_count < 100:
                 sample_fraction = 0.5  # Higher sampling for smaller datasets
             
-            self.logger.debug(f"Checking JSON/Avro parsing using {sample_fraction:.1%} sampling")
+            # Checking JSON/Avro parsing
             
             # Sample the DataFrame
             sample_df = df.sample(fraction=sample_fraction, seed=42)
@@ -563,7 +562,7 @@ class MedallionDataQualityValidator:
             if total_count < 100:
                 sample_fraction = 0.4  # Higher sampling for smaller datasets
             
-            self.logger.debug(f"Checking symbol format using {sample_fraction:.1%} sampling")
+            # Checking symbol format
             
             # Sample the DataFrame
             sample_df = df.sample(fraction=sample_fraction, seed=42)
@@ -610,7 +609,7 @@ class MedallionDataQualityValidator:
             if total_count < 100:
                 sample_fraction = 0.3  # Higher sampling for smaller datasets
             
-            self.logger.debug(f"Checking data freshness using {sample_fraction:.1%} sampling")
+            # Checking data freshness
             
             # Sample the DataFrame
             sample_df = df.sample(fraction=sample_fraction, seed=42)
@@ -657,7 +656,7 @@ class MedallionDataQualityValidator:
             if total_count < 100:
                 sample_fraction = 0.3  # Higher sampling for smaller datasets
             
-            self.logger.debug(f"Checking processing metadata using {sample_fraction:.1%} sampling")
+            # Checking processing metadata
             
             # Sample the DataFrame
             sample_df = df.sample(fraction=sample_fraction, seed=42)
@@ -705,7 +704,7 @@ class MedallionDataQualityValidator:
             if total_count < 100:
                 sample_fraction = 0.25  # Higher sampling for smaller datasets
             
-            self.logger.debug(f"Checking data layer consistency using {sample_fraction:.1%} sampling")
+            # Checking data layer consistency
             
             # Sample the DataFrame
             sample_df = df.sample(fraction=sample_fraction, seed=42)
@@ -890,7 +889,7 @@ class MedallionDataQualityValidator:
             failure_rate = 1.0
             failed_count = total_count
         
-        self.logger.debug(f"Created error result for {rule_name}: severity={severity}, message={message}")
+        # Created error result
         
         return LayerValidationResult(
             layer=layer,

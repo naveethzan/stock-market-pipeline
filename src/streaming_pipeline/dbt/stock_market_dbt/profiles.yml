@@ -1,0 +1,13 @@
+stock_market:
+  target: prod
+  outputs:
+    prod:
+      type: redshift
+      host: "{{ env_var('REDSHIFT_ENDPOINT') }}"
+      port: 5439
+      user: "{{ env_var('REDSHIFT_USER') }}"
+      password: "{{ env_var('REDSHIFT_PASSWORD') }}"
+      dbname: stockmarket
+      schema: staging
+      threads: 4
+      keepalives_idle: 240

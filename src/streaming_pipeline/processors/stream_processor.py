@@ -104,12 +104,8 @@ class StreamProcessor:
                            "--add-opens=java.base/sun.security.action=ALL-UNNAMED "
                            "--add-opens=java.base/sun.util.calendar=ALL-UNNAMED "
                            "--add-opens=java.security.jgss/sun.security.krb5=ALL-UNNAMED")
-                    # Kafka and Avro integration - ensure packages are available
-                    .config("spark.jars.packages", 
-                           "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,"
-                           "org.apache.spark:spark-avro_2.12:3.5.1")
-                    # Force package resolution and download
-                    .config("spark.jars.ivy", "/home/streaming/.ivy2")
+                    # Use getOrCreate() to get existing session when submitted via spark-submit
+                    # No need to specify packages as they're handled by spark-submit
                     .config("spark.sql.streaming.forceDeleteTempCheckpointLocation", "true")
                     .config("spark.sql.streaming.checkpointLocation.deleteOnExit", "true")
                     # Parquet optimization
@@ -122,7 +118,7 @@ class StreamProcessor:
             
             # Verify Kafka packages are available
             try:
-                # Test if Kafka data source is available
+                # Check if Kafka data source is available
                 test_df = (spark.readStream
                           .format("kafka")
                           .option("kafka.bootstrap.servers", "dummy:9092")
@@ -243,14 +239,7 @@ class StreamProcessor:
                 )
                 raise StreamProcessorError(error_msg)
             
-            logger.debug(
-                "Avro schema retrieved successfully",
-                extra={
-                    "schema_name": schema_name,
-                    "schema_size_bytes": len(schema_json),
-                    "field_count": len(schema_dict.get("fields", []))
-                }
-            )
+            logger.info(f"Avro schema retrieved successfully: {schema_name} ({len(schema_dict.get('fields', []))} fields)")
             
             return schema_json
             
@@ -430,13 +419,7 @@ class StreamProcessor:
                     )
                     return False
             
-            logger.debug(
-                "Schema validation passed",
-                extra={
-                    "schema_name": schema_dict.get("name"),
-                    "field_count": len(fields)
-                }
-            )
+            logger.info(f"Schema validation passed: {schema_dict.get('name')} ({len(fields)} fields)")
             
             return True
             
@@ -673,7 +656,7 @@ class StreamProcessor:
                 extra={"processed_topics": len(all_parsed_dfs)}
             )
             
-            # Log the final harmonized data structure for debugging
+            # Log the final harmonized data structure
             final_columns = final_df.columns
             logger.info(f"Available columns after harmonization: {final_columns}")
             
@@ -739,7 +722,7 @@ class StreamProcessor:
         logger.info("Applying data transformations")
         
         try:
-            # Log available columns for debugging
+            # Log available columns
             available_columns = df.columns
             logger.info(f"Available columns for transformation: {available_columns}")
             
@@ -801,7 +784,7 @@ class StreamProcessor:
                        .withColumn("price_trend_5min", F.lit("neutral"))  # Default to neutral
                        .withColumn("volume_ratio", F.lit(1.0)))  # Default volume ratio
             
-            # Log final schema for debugging
+            # Log final schema
             final_columns = final_df.columns
             logger.info(f"Final transformed columns: {final_columns}")
             
@@ -848,7 +831,7 @@ class StreamProcessor:
                 """
                 try:
                     if batch_df.count() == 0:
-                        logger.debug(f"Batch {batch_id} is empty for topic {topic}, skipping")
+                        # Batch is empty, skipping
                         return
                     
                     logger.info(f"Processing batch {batch_id} with {batch_df.count()} records for topic {topic}")
@@ -964,21 +947,9 @@ class StreamProcessor:
                                     failed_records += 1
                                     continue
                             
-                            # Log first few records for debugging
+                            # Log sample records for monitoring
                             if successful_records < 3:
                                 logger.info(f"Sample record {successful_records + 1}: symbol={serialization_dict.get('symbol')}, current_price={serialization_dict.get('current_price')}")
-                            
-                            # ==> DEBUG LOGGING: Examine data structure before transformation <==
-                            if successful_records == 0:  # Only log the first record to avoid spam
-                                logger.info("=== SERIALIZATION DEBUG - RAW DATA STRUCTURE ===")
-                                logger.info(f"Raw serialization_dict keys: {list(serialization_dict.keys())}")
-                                for key, value in serialization_dict.items():
-                                    logger.info(f"Field '{key}': type={type(value)}, value={value}")
-                                    if isinstance(value, dict):
-                                        logger.warning(f"FOUND NESTED DICT in field '{key}': {value}")
-                                    elif isinstance(value, (list, tuple)):
-                                        logger.warning(f"FOUND ARRAY in field '{key}': {value}")
-                                logger.info("=== END SERIALIZATION DEBUG ===")
                             
                             # Transform data for Schema Registry format (convert timestamps, etc.)
                             transformed_data = serialization_dict.copy()
@@ -1030,21 +1001,16 @@ class StreamProcessor:
                                         skipped_fields.append(f"{key} (unconvertible)")
                                         continue
                             
-                            # ==> DEBUG LOGGING: Show cleaned data structure <==
-                            if successful_records == 0:  # Only log the first record
-                                logger.info("=== CLEANED DATA FOR AVRO SERIALIZATION ===")
-                                logger.info(f"Clean data keys: {list(clean_data.keys())}")
-                                logger.info(f"Skipped fields: {skipped_fields}")
-                                for key, value in clean_data.items():
-                                    logger.info(f"Clean field '{key}': type={type(value)}, value={value}")
-                                logger.info("=== END CLEANED DATA DEBUG ===")
+                            # Log data structure for monitoring
+                            if successful_records == 0 and skipped_fields:
+                                logger.info(f"Data transformation completed. Skipped fields: {skipped_fields}")
                             
                             # Send to Kafka using AvroProducer (automatically handles Schema Registry format)
                             def delivery_callback(err, msg):
                                 if err:
                                     logger.error(f"Failed to deliver message to {topic}: {err}")
                                 else:
-                                    logger.debug(f"Message delivered to {topic}[{msg.partition()}] at offset {msg.offset()}")
+                                    # Message delivered successfully
                             
                             producer.produce(
                                 topic=topic,
@@ -1538,7 +1504,7 @@ class StreamProcessor:
             # Publish to Kafka topics for medallion architecture
             kafka_queries = self.publish_to_kafka_topics(transformed_stream, kafka_checkpoint_path)
             
-            # Optionally write to Parquet for backup/debugging
+            # Optionally write to Parquet for backup
             parquet_query = None
             try:
                 output_path = f"{output_base_path}/{topic_name}_data"
@@ -1631,7 +1597,7 @@ class StreamProcessor:
         logger.info("Preparing processed stock prices data with Silver layer validation")
         
         try:
-            # Log available columns for debugging
+            # Log available columns
             available_columns = df.columns
             logger.info(f"Available columns in stock prices DataFrame: {available_columns}")
             
@@ -1726,7 +1692,7 @@ class StreamProcessor:
         logger.info("Preparing processed trading volume data")
         
         try:
-            # Log available columns for debugging
+            # Log available columns
             available_columns = df.columns
             logger.info(f"Available columns in trading volume DataFrame: {available_columns}")
             
@@ -1813,7 +1779,7 @@ class StreamProcessor:
         logger.info("Preparing processed technical indicators data")
         
         try:
-            # Log available columns for debugging
+            # Log available columns
             available_columns = df.columns
             logger.info(f"Available columns in technical indicators DataFrame: {available_columns}")
             
@@ -2438,10 +2404,10 @@ class StreamProcessor:
         try:
             import time
             
-            # Test Avro serialization for each data type
+            # Validate Avro serialization for each data type
             test_results = {}
             
-            # Test stock prices serialization
+            # Validate stock prices serialization
             try:
                 stock_prices_data = {
                     "symbol": sample_data.get("symbol", "TEST"),
@@ -2472,7 +2438,7 @@ class StreamProcessor:
                 test_results["stock_prices"] = False
                 logger.error(f"Stock prices serialization test FAILED: {str(e)}")
             
-            # Test trading volume serialization
+            # Validate trading volume serialization
             try:
                 volume_data = {
                     "symbol": sample_data.get("symbol", "TEST"),
@@ -2497,7 +2463,7 @@ class StreamProcessor:
                 test_results["trading_volume"] = False
                 logger.error(f"Trading volume serialization test FAILED: {str(e)}")
             
-            # Test technical indicators serialization
+            # Validate technical indicators serialization
             try:
                 indicators_data = {
                     "symbol": sample_data.get("symbol", "TEST"),
@@ -2525,7 +2491,7 @@ class StreamProcessor:
                 test_results["technical_indicators"] = False
                 logger.error(f"Technical indicators serialization test FAILED: {str(e)}")
             
-            # Overall test result
+            # Overall validation result
             all_passed = all(test_results.values())
             logger.info(f"Data flow test {'PASSED' if all_passed else 'FAILED'}: {test_results}")
             

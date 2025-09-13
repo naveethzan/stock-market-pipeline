@@ -1,0 +1,147 @@
+version: 2
+
+sources:
+  - name: streaming
+    database: stockmarket
+    schema: streaming
+    description: "Raw streaming data from Kafka Connect to Redshift"
+    tables:
+      - name: processed_stock_stream
+        description: "Processed stock data from Spark via Kafka Connect"
+        columns:
+          - name: kafka_key
+            description: "Kafka message key (typically stock symbol)"
+            tests:
+              - not_null
+          - name: kafka_value
+            description: "JSON payload containing processed stock data from Spark"
+            tests:
+              - not_null
+          - name: kafka_partition
+            description: "Kafka partition number for this message"
+          - name: kafka_offset
+            description: "Kafka message offset within partition"
+          - name: kafka_timestamp
+            description: "Kafka message timestamp (used for incremental processing)"
+            tests:
+              - not_null
+          - name: refresh_time
+            description: "Timestamp when record was written to Redshift by Kafka Connect"
+            
+      - name: technical_indicators_stream
+        description: "Technical indicators calculated by Spark via Kafka Connect"
+        columns:
+          - name: kafka_key
+            description: "Kafka message key (typically stock symbol)"
+            tests:
+              - not_null
+          - name: kafka_value
+            description: "JSON payload containing technical indicators from Spark"
+            tests:
+              - not_null
+          - name: kafka_partition
+            description: "Kafka partition number for this message"
+          - name: kafka_offset
+            description: "Kafka message offset within partition"
+          - name: kafka_timestamp
+            description: "Kafka message timestamp (used for incremental processing)"
+            tests:
+              - not_null
+          - name: refresh_time
+            description: "Timestamp when record was written to Redshift by Kafka Connect"
+            
+      - name: aggregated_data_stream
+        description: "Window-aggregated stock data from Spark via Kafka Connect"
+        columns:
+          - name: kafka_key
+            description: "Kafka message key (typically stock symbol)"
+            tests:
+              - not_null
+          - name: kafka_value
+            description: "JSON payload containing aggregated window data from Spark"
+            tests:
+              - not_null
+          - name: kafka_partition
+            description: "Kafka partition number for this message"
+          - name: kafka_offset
+            description: "Kafka message offset within partition"
+          - name: kafka_timestamp
+            description: "Kafka message timestamp (used for incremental processing)"
+            tests:
+              - not_null
+          - name: refresh_time
+            description: "Timestamp when record was written to Redshift by Kafka Connect"
+
+models:
+  - name: stg_processed_stock
+    description: "Parsed processed stock data with JSON extraction"
+    columns:
+      - name: record_id
+        description: "Unique record identifier (MD5 hash)"
+        tests:
+          - not_null
+          - unique
+      - name: symbol
+        description: "Stock ticker symbol"
+        tests:
+          - not_null
+      - name: timestamp
+        description: "Stock quote timestamp"
+        tests:
+          - not_null
+      - name: kafka_timestamp
+        description: "Kafka message timestamp for incremental processing"
+        tests:
+          - not_null
+      - name: dbt_loaded_at
+        description: "DBT processing timestamp"
+        
+  - name: stg_technical_indicators
+    description: "Parsed technical indicators from Spark"
+    columns:
+      - name: record_id
+        description: "Unique record identifier (MD5 hash)"
+        tests:
+          - not_null
+          - unique
+      - name: symbol
+        description: "Stock ticker symbol"
+        tests:
+          - not_null
+      - name: timestamp
+        description: "Indicator calculation timestamp"
+        tests:
+          - not_null
+      - name: rsi
+        description: "Relative Strength Index (0-100)"
+      - name: sma_20
+        description: "20-period Simple Moving Average"
+      - name: kafka_timestamp
+        description: "Kafka message timestamp for incremental processing"
+      - name: dbt_loaded_at
+        description: "DBT processing timestamp"
+        
+  - name: stg_aggregated_data
+    description: "Parsed aggregated window data from Spark"
+    columns:
+      - name: record_id
+        description: "Unique record identifier (MD5 hash)"
+        tests:
+          - not_null
+          - unique
+      - name: symbol
+        description: "Stock ticker symbol"
+        tests:
+          - not_null
+      - name: window_start
+        description: "Aggregation window start time"
+        tests:
+          - not_null
+      - name: window_end
+        description: "Aggregation window end time"
+      - name: total_volume
+        description: "Total trading volume in window"
+      - name: kafka_timestamp
+        description: "Kafka message timestamp for incremental processing"
+      - name: dbt_loaded_at
+        description: "DBT processing timestamp"
