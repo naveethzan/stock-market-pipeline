@@ -415,13 +415,17 @@ def validate_silver_layer_data(self, batch_df, data_type):
     # Checks for: null values, data ranges, schema compliance
 ```
 
-### 3. Health Check Endpoints:
+### 3. Health Monitoring:
 
 ```
-GET /health     - Overall system health
-GET /metrics    - Detailed performance metrics  
-GET /queries    - Status of all streaming queries
-POST /queries/{name}/restart - Restart specific query
+# Container health monitoring
+docker ps --format "table {{.Names}}\t{{.Status}}"
+
+# Spark UI monitoring
+# Access Spark Application UI at http://localhost:4040
+
+# Log-based monitoring
+docker-compose logs -f streaming-processor
 ```
 
 ## 🚨 Error Handling and Fault Tolerance

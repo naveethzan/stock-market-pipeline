@@ -8,11 +8,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-def get_settings():
-    """Get global settings instance"""
-    return Settings()
-
-
 @dataclass
 class AlphaVantageConfig:
     """Alpha Vantage API configuration."""
@@ -104,19 +99,6 @@ class SparkConfig:
     max_result_size: str
 
 
-@dataclass
-class MonitoringConfig:
-    """Monitoring and logging configuration."""
-    log_level: str
-    metrics_enabled: bool
-    health_check_port: int
-    
-    # Alerting thresholds
-    error_rate_threshold: float
-    latency_threshold_ms: int
-    throughput_threshold_per_sec: int
-
-
 class ConfigManager:
     """Central configuration manager for the streaming pipeline."""
     
@@ -130,7 +112,6 @@ class ConfigManager:
         self.kafka = self._load_kafka_config()
         self.redshift = self._load_redshift_config()
         self.spark = self._load_spark_config()
-        self.monitoring = self._load_monitoring_config()
         
         # Stock symbols to track
         self.stock_symbols = self._get_stock_symbols()
@@ -283,17 +264,6 @@ class ConfigManager:
             max_result_size=os.getenv("SPARK_MAX_RESULT_SIZE", "1g")
         )
     
-    def _load_monitoring_config(self) -> MonitoringConfig:
-        """Load monitoring configuration."""
-        return MonitoringConfig(
-            log_level=os.getenv("LOG_LEVEL", "INFO"),
-            metrics_enabled=os.getenv("METRICS_ENABLED", "true").lower() == "true",
-            health_check_port=int(os.getenv("HEALTH_CHECK_PORT", "8080")),
-            
-            error_rate_threshold=float(os.getenv("ERROR_RATE_THRESHOLD", "0.05")),
-            latency_threshold_ms=int(os.getenv("LATENCY_THRESHOLD_MS", "5000")),
-            throughput_threshold_per_sec=int(os.getenv("THROUGHPUT_THRESHOLD_PER_SEC", "100"))
-        )
     
     def _get_stock_symbols(self) -> List[str]:
         """Get list of stock symbols to track."""
@@ -380,26 +350,6 @@ class ConfigManager:
     def get_output_base_path(self) -> str:
         """Get base path for output files."""
         return os.getenv("OUTPUT_BASE_PATH", "/tmp/streaming-output")
-
-
-class Settings:
-    """Settings class for Redshift integration"""
-    
-    def __init__(self):
-        # Redshift settings
-        self.redshift_endpoint = os.getenv("REDSHIFT_ENDPOINT")
-        self.redshift_port = int(os.getenv("REDSHIFT_PORT", "5439"))
-        self.redshift_user = os.getenv("REDSHIFT_USER", "admin")
-        self.redshift_password = os.getenv("REDSHIFT_PASSWORD")
-        self.redshift_database = os.getenv("REDSHIFT_DATABASE", "stockmarket")
-        self.redshift_iam_role = os.getenv("REDSHIFT_IAM_ROLE")
-        
-        # AWS/S3 settings
-        self.s3_bucket_name = os.getenv("S3_BUCKET_NAME")
-        self.aws_region = os.getenv("AWS_REGION", "us-east-1")
-        self.aws_access_key_id = os.getenv("AWS_ACCESS_KEY_ID")
-        self.aws_secret_access_key = os.getenv("AWS_SECRET_ACCESS_KEY")
-        self.aws_role_arn = os.getenv("AWS_ROLE_ARN")
 
 
 # Global configuration instance

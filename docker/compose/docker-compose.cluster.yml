@@ -185,11 +185,10 @@ services:
       - ../../src:/app/src:ro
       - ../../config:/app/config:ro
     ports:
-      - "8082:8080"  # Health check endpoint
       - "4040:4040"  # Spark Application UI
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python3", "-c", "import requests; requests.get('http://localhost:8082/health')"]
+      test: ["CMD", "pgrep", "-f", "spark_processor"]
       interval: 30s
       timeout: 10s
       retries: 3

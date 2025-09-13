@@ -16,9 +16,6 @@ from typing import Optional, List, Dict
 import threading
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse, Response
-import uvicorn
 
 from ..config.settings import ConfigManager
 from ..config.loader import initialize_configuration
@@ -32,8 +29,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler('/app/logs/producer.log', mode='a')
+        logging.StreamHandler(sys.stdout)
     ]
 )
 
@@ -43,7 +39,6 @@ logger = logging.getLogger(__name__)
 producer: Optional[AvroDataProducer] = None
 producer_thread: Optional[threading.Thread] = None
 shutdown_event = threading.Event()
-app = FastAPI(title="Stock Market Data Streaming Service", version="1.0.0")
 
 
 class ProducerService:
@@ -299,99 +294,6 @@ class ProducerService:
 producer_service: Optional[ProducerService] = None
 
 
-@app.get("/health")
-async def health_check():
-    """Health check endpoint for Docker health checks."""
-    global producer_service
-    
-    if not producer_service:
-        raise HTTPException(status_code=503, detail="Producer service not initialized")
-    
-    health_status = producer_service.get_health_status()
-    
-    if health_status["status"] == "healthy":
-        return JSONResponse(content=health_status, status_code=200)
-    else:
-        return JSONResponse(content=health_status, status_code=503)
-
-
-@app.get("/metrics")
-async def get_metrics():
-    """Get detailed producer metrics in Prometheus format."""
-    global producer_service
-    
-    if not producer_service:
-        raise HTTPException(status_code=503, detail="Producer service not initialized")
-    
-    health_status = producer_service.get_health_status()
-    
-    # Convert to Prometheus format
-    prometheus_metrics = []
-    
-    # Messages metrics
-    messages = health_status.get("metrics", {}).get("messages", {})
-    prometheus_metrics.append(f"# HELP alpha_vantage_messages_sent_total Total number of messages sent to Kafka")
-    prometheus_metrics.append(f"# TYPE alpha_vantage_messages_sent_total counter")
-    prometheus_metrics.append(f'alpha_vantage_messages_sent_total{{job="streaming-producer"}} {messages.get("sent", 0)}')
-    
-    prometheus_metrics.append(f"# HELP alpha_vantage_messages_failed_total Total number of failed messages")
-    prometheus_metrics.append(f"# TYPE alpha_vantage_messages_failed_total counter")
-    prometheus_metrics.append(f'alpha_vantage_messages_failed_total{{job="streaming-producer"}} {messages.get("failed", 0)}')
-    
-    prometheus_metrics.append(f"# HELP alpha_vantage_messages_pending_current Number of pending messages")
-    prometheus_metrics.append(f"# TYPE alpha_vantage_messages_pending_current gauge")
-    prometheus_metrics.append(f'alpha_vantage_messages_pending_current{{job="streaming-producer"}} {messages.get("pending", 0)}')
-    
-    prometheus_metrics.append(f"# HELP alpha_vantage_success_rate Current success rate")
-    prometheus_metrics.append(f"# TYPE alpha_vantage_success_rate gauge")
-    prometheus_metrics.append(f'alpha_vantage_success_rate{{job="streaming-producer"}} {messages.get("success_rate", 0.0)}')
-    
-    # API metrics
-    api = health_status.get("metrics", {}).get("api", {})
-    prometheus_metrics.append(f"# HELP alpha_vantage_api_calls_total Total number of API calls")
-    prometheus_metrics.append(f"# TYPE alpha_vantage_api_calls_total counter")
-    prometheus_metrics.append(f'alpha_vantage_api_calls_total{{job="streaming-producer"}} {api.get("requests", 0)}')
-    
-    prometheus_metrics.append(f"# HELP alpha_vantage_api_errors_total Total number of API errors")
-    prometheus_metrics.append(f"# TYPE alpha_vantage_api_errors_total counter")
-    prometheus_metrics.append(f'alpha_vantage_api_errors_total{{job="streaming-producer"}} {api.get("errors", 0)}')
-    
-    # Throughput metrics
-    throughput = health_status.get("metrics", {}).get("throughput", {})
-    prometheus_metrics.append(f"# HELP alpha_vantage_throughput_messages_per_second Current throughput in messages per second")
-    prometheus_metrics.append(f"# TYPE alpha_vantage_throughput_messages_per_second gauge")
-    prometheus_metrics.append(f'alpha_vantage_throughput_messages_per_second{{job="streaming-producer"}} {throughput.get("messages_per_second", 0.0)}')
-    
-    prometheus_metrics.append(f"# HELP alpha_vantage_bytes_sent_total Total bytes sent")
-    prometheus_metrics.append(f"# TYPE alpha_vantage_bytes_sent_total counter")
-    prometheus_metrics.append(f'alpha_vantage_bytes_sent_total{{job="streaming-producer"}} {throughput.get("bytes_sent", 0)}')
-    
-    # Health status
-    is_healthy = 1 if health_status.get("status") == "healthy" else 0
-    prometheus_metrics.append(f"# HELP alpha_vantage_service_healthy Service health status")
-    prometheus_metrics.append(f"# TYPE alpha_vantage_service_healthy gauge")
-    prometheus_metrics.append(f'alpha_vantage_service_healthy{{job="streaming-producer"}} {is_healthy}')
-    
-    return Response(content="\n".join(prometheus_metrics) + "\n", media_type="text/plain")
-
-
-@app.get("/metrics/json")
-async def get_metrics_json():
-    """Get detailed producer metrics in JSON format."""
-    global producer_service
-    
-    if not producer_service:
-        raise HTTPException(status_code=503, detail="Producer service not initialized")
-    
-    return producer_service.get_health_status()
-
-
-@app.post("/shutdown")
-async def shutdown():
-    """Graceful shutdown endpoint."""
-    logger.info("Shutdown requested via API")
-    shutdown_event.set()
-    return {"message": "Shutdown initiated"}
 
 
 def signal_handler(signum, frame):
@@ -437,15 +339,10 @@ def main():
         producer_thread = threading.Thread(target=run_producer_thread, daemon=True)
         producer_thread.start()
         
-        # Start health check server
-        logger.info("Starting health check server on port 8080")
-        uvicorn.run(
-            app,
-            host="0.0.0.0",
-            port=8080,
-            log_level="info",
-            access_log=True
-        )
+        # Wait for shutdown signal
+        logger.info("Producer service running. Press Ctrl+C to stop.")
+        while not shutdown_event.is_set():
+            time.sleep(1)
         
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt received")

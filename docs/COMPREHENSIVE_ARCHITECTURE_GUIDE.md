@@ -286,11 +286,11 @@ CREATE TABLE FACT_STOCK_PRICES (
 5. **SCD Type 2 Processing** - Handle slowly changing dimensions
 
 ### 6. Monitoring & Health Checks
-**File**: `src/streaming_pipeline/monitoring/health_checks.py`
+**File**: `src/streaming_pipeline/monitoring/simple_logger.py`
 
 **Health Check Components:**
-- **Kafka Connect Status** - Connector health monitoring
-- **Data Quality Metrics** - Validation rule results
+- **Container Health** - Docker-based process monitoring
+- **Log-based Monitoring** - Structured logging for debugging
 - **System Dependencies** - External service availability
 - **Pipeline Metrics** - Throughput and latency tracking
 
@@ -350,8 +350,7 @@ make docker-build
 make docker-up
 
 # 3. Check health
-curl http://localhost:8081/health  # Producer
-curl http://localhost:8082/health  # Processor
+docker ps --format "table {{.Names}}\t{{.Status}}"  # Check container health
 
 # 4. Monitor progress
 # Kafka UI: http://localhost:8090

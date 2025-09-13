@@ -21,20 +21,6 @@ from .transformations import (
     WindowedAggregations
 )
 
-from .dimensional import (
-    DimensionalModelBuilder,
-    DimensionConfig
-)
-
-from .data_quality import (
-    DataQualityValidator,
-    ValidationRule,
-    ValidationResult
-)
-
-from .dimensional_pipeline import (
-    DimensionalPipeline
-)
 
 __all__ = [
     # Schemas
@@ -51,13 +37,5 @@ __all__ = [
     
     # Transformations
     "StreamingTransformations",
-    "WindowedAggregations",
-    
-    # Dimensional Modeling
-    "DimensionalModelBuilder",
-    "DimensionConfig",
-    "DataQualityValidator",
-    "ValidationRule",
-    "ValidationResult",
-    "DimensionalPipeline"
+    "WindowedAggregations"
 ]

@@ -56,8 +56,8 @@ make -f Makefile.streaming-docker full-up
 # Check service status
 make -f Makefile.streaming-docker status
 
-# Check health endpoints
-make -f Makefile.streaming-docker health
+# Check container health
+docker ps --format "table {{.Names}}\t{{.Status}}"
 
 # View logs
 make -f Makefile.streaming-docker logs
@@ -69,31 +69,21 @@ make -f Makefile.streaming-docker logs
 
 **Image:** `streaming-producer:latest`
 **Base:** `python:3.9-slim`
-**Port:** `8081` (health check endpoint)
-
 **Features:**
 - Fetches real-time stock quotes from Alpha Vantage API
 - Publishes data to Kafka topics with JSON serialization
 - Built-in rate limiting and retry logic
-- Health check endpoint for monitoring
 - Graceful shutdown handling
 
 **Health Check:**
 ```bash
-curl http://localhost:8081/health
-```
-
-**Metrics:**
-```bash
-curl http://localhost:8081/metrics
+docker ps --format "table {{.Names}}\t{{.Status}}" | grep streaming-producer
 ```
 
 ### Spark Structured Streaming Processor
 
 **Image:** `streaming-processor:latest`
 **Base:** `openjdk:11-jre-slim` with Python 3
-**Port:** `8082` (health check endpoint)
-
 **Features:**
 - Consumes data from Kafka using Spark Structured Streaming
 - Applies data transformations and quality checks
@@ -103,12 +93,12 @@ curl http://localhost:8081/metrics
 
 **Health Check:**
 ```bash
-curl http://localhost:8082/health
+docker ps --format "table {{.Names}}\t{{.Status}}" | grep streaming-processor
 ```
 
-**Query Status:**
+**Spark UI:**
 ```bash
-curl http://localhost:8082/queries
+# Access Spark Application UI at http://localhost:4040
 ```
 
 ## Configuration
@@ -218,59 +208,27 @@ make -f Makefile.streaming-docker clean           # Clean up containers
 
 ## Monitoring and Health Checks
 
-### Health Endpoints
+### Health Monitoring
 
-Both containers expose health check endpoints:
+Both containers have built-in health monitoring:
 
 **Producer Health:**
 ```bash
-curl http://localhost:8081/health
-```
-
-Response:
-```json
-{
-  "status": "healthy",
-  "is_running": true,
-  "last_health_check": "2024-01-15T10:30:00Z",
-  "error_count": 0,
-  "total_runs": 150,
-  "metrics": {
-    "messages": {
-      "sent": 1500,
-      "failed": 2,
-      "success_rate": 0.998
-    },
-    "throughput": {
-      "messages_per_second": 2.5,
-      "runtime_seconds": 600
-    }
-  }
-}
+docker ps --format "table {{.Names}}\t{{.Status}}" | grep streaming-producer
 ```
 
 **Processor Health:**
 ```bash
-curl http://localhost:8082/health
+docker ps --format "table {{.Names}}\t{{.Status}}" | grep streaming-processor
 ```
 
-Response:
-```json
-{
-  "status": "healthy",
-  "is_running": true,
-  "uptime_seconds": 3600,
-  "active_queries": 1,
-  "healthy_queries": 1,
-  "query_statuses": {
-    "stock_quotes": {
-      "is_active": true,
-      "batch_id": 45,
-      "input_rows_per_second": 2.1,
-      "processed_rows_per_second": 2.0
-    }
-  }
-}
+**Check Logs:**
+```bash
+# Producer logs
+docker-compose logs -f streaming-producer
+
+# Processor logs  
+docker-compose logs -f streaming-processor
 ```
 
 ### Docker Health Checks

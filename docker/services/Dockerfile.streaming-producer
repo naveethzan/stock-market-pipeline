@@ -48,9 +48,9 @@ USER streaming
 ENV PYTHONPATH=/app/src
 ENV PYTHONUNBUFFERED=1
 
-# Optimized health check
+# Simple health check - just check if process is running
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8080/health', timeout=5)" || exit 1
+    CMD pgrep -f "alpha_vantage_app" || exit 1
 
 # Default command
 CMD ["python", "-m", "streaming_pipeline.producers.alpha_vantage_app"]

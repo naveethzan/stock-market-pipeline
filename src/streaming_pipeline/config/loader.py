@@ -6,7 +6,7 @@ import yaml
 import logging
 import logging.config
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Optional
 
 from .settings import ConfigManager
 
@@ -69,112 +69,36 @@ def load_environment_file(env_file: Optional[str] = None) -> None:
 
 
 def validate_configuration(config: ConfigManager) -> bool:
-    """
-    Validate the configuration for required settings.
-    
-    Args:
-        config: Configuration manager instance
-        
-    Returns:
-        True if configuration is valid, False otherwise
-    """
+    """Validate essential configuration settings."""
     logger = logging.getLogger(__name__)
-    is_valid = True
     
-    # Validate Alpha Vantage configuration
-    if not config.alpha_vantage.api_key or config.alpha_vantage.api_key == "your_alpha_vantage_api_key_here":
-        logger.error("Alpha Vantage API key is not configured")
-        is_valid = False
-    
-    # Validate Kafka configuration
+    # Essential validations only
     if not config.kafka.bootstrap_servers:
-        logger.error("Kafka bootstrap servers are not configured")
-        is_valid = False
+        logger.error("Kafka bootstrap servers not configured")
+        return False
     
-    # Validate Redshift configuration
-    required_redshift_fields = [
-        config.redshift.endpoint,
-        config.redshift.database,
-        config.redshift.user,
-        config.redshift.password
-    ]
-    
-    if any(not field or str(field).startswith("your_") or str(field).startswith("mock_") for field in required_redshift_fields):
-        logger.error("Redshift configuration is incomplete")
-        is_valid = False
-    
-    # Validate stock symbols
     if not config.stock_symbols:
         logger.error("No stock symbols configured")
-        is_valid = False
+        return False
     
-    if is_valid:
-        logger.info("Configuration validation passed")
-    else:
-        logger.error("Configuration validation failed")
+    # Skip API key validation in mock mode
+    if not config.alpha_vantage.mock_mode and not config.alpha_vantage.api_key:
+        logger.error("Alpha Vantage API key required in production mode")
+        return False
     
-    return is_valid
+    logger.info("Configuration validation passed")
+    return True
 
 
-def get_spark_config_dict(config: ConfigManager) -> Dict[str, Any]:
-    """
-    Get Spark configuration as a dictionary.
-    
-    Args:
-        config: Configuration manager instance
-        
-    Returns:
-        Dictionary of Spark configuration settings
-    """
-    return {
-        "spark.app.name": config.spark.app_name,
-        "spark.master": config.spark.master,
-        "spark.sql.adaptive.enabled": str(config.spark.sql_adaptive_enabled).lower(),
-        "spark.sql.adaptive.coalescePartitions.enabled": str(config.spark.sql_adaptive_coalescePartitions_enabled).lower(),
-        "spark.serializer": config.spark.serializer,
-        "spark.driver.memory": config.spark.driver_memory,
-        "spark.executor.memory": config.spark.executor_memory,
-        "spark.executor.cores": str(config.spark.executor_cores),
-        "spark.driver.maxResultSize": config.spark.max_result_size,
-        
-        # Streaming specific configurations
-        "spark.sql.streaming.checkpointLocation": config.spark.checkpoint_location,
-        "spark.sql.streaming.stateStore.providerClass": "org.apache.spark.sql.execution.streaming.state.HDFSBackedStateStoreProvider",
-        
-        # Kafka specific configurations
-        "spark.sql.streaming.kafka.useDeprecatedOffsetFetching": "false",
-        
-        # Performance tuning
-        "spark.sql.streaming.metricsEnabled": "true",
-        "spark.sql.streaming.numRecentProgressUpdates": "100",
-        
-        # Kryo serialization for better performance
-        "spark.kryo.registrationRequired": "false",
-        "spark.kryo.unsafe": "true",
-        
-        # Dynamic allocation (disabled for streaming)
-        "spark.dynamicAllocation.enabled": "false",
-        
-        # Garbage collection tuning
-        "spark.driver.extraJavaOptions": "-XX:+UseG1GC -XX:+UnlockDiagnosticVMOptions -XX:+G1PrintRegionRememberedSetInfo",
-        "spark.executor.extraJavaOptions": "-XX:+UseG1GC -XX:+UnlockDiagnosticVMOptions -XX:+G1PrintRegionRememberedSetInfo"
-    }
 
 
 def create_directories() -> None:
-    """Create necessary directories for the streaming pipeline."""
-    directories = [
-        'logs',
-        'checkpoints',
-        'data/processed',
-        'data/quarantine',
-        'data/archive'
-    ]
+    """Create essential directories for the streaming pipeline."""
+    # Only create essential directories
+    Path('logs').mkdir(exist_ok=True)
+    Path('checkpoints').mkdir(exist_ok=True)
     
-    for directory in directories:
-        Path(directory).mkdir(parents=True, exist_ok=True)
-    
-    logging.info("Created necessary directories")
+    logging.info("Created essential directories")
 
 
 def initialize_configuration(env_file: Optional[str] = None, 

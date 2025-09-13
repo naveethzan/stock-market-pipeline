@@ -157,10 +157,9 @@ services:
       - ../../src:/app/src:ro
       - ../../config:/app/config:ro
     ports:
-      - "8081:8080"  # Producer health endpoint
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8080/health')"]
+      test: ["CMD", "pgrep", "-f", "alpha_vantage_app"]
       interval: 30s
       timeout: 10s
       retries: 3
