@@ -87,7 +87,7 @@ logs/
 .ipynb_checkpoints/
 
 # Local secrets and environment files
-
+.env
 
 # Temporary files and validation results
 *.tmp

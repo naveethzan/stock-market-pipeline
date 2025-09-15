@@ -1,4 +1,4 @@
-# Logging configuration for streaming pipeline
+# Logging configuration for stock market pipeline
 version: 1
 disable_existing_loggers: false
 
@@ -6,14 +6,6 @@ formatters:
   standard:
     format: '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
     datefmt: '%Y-%m-%d %H:%M:%S'
-  
-  detailed:
-    format: '%(asctime)s [%(levelname)s] %(name)s [%(filename)s:%(lineno)d] [%(funcName)s] - %(message)s'
-    datefmt: '%Y-%m-%d %H:%M:%S'
-  
-  json:
-    format: '{"timestamp": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "message": "%(message)s", "module": "%(module)s", "function": "%(funcName)s", "line": %(lineno)d}'
-    datefmt: '%Y-%m-%dT%H:%M:%S'
 
 handlers:
   console:
@@ -23,61 +15,45 @@ handlers:
     stream: ext://sys.stdout
 
   file:
-    class: logging.handlers.RotatingFileHandler
+    class: logging.FileHandler
     level: DEBUG
-    formatter: detailed
-    filename: logs/streaming_pipeline.log
-    maxBytes: 10485760  # 10MB
-    backupCount: 5
-    encoding: utf8
-
-  error_file:
-    class: logging.handlers.RotatingFileHandler
-    level: ERROR
-    formatter: detailed
-    filename: logs/streaming_pipeline_errors.log
-    maxBytes: 10485760  # 10MB
-    backupCount: 5
-    encoding: utf8
-
-  json_file:
-    class: logging.handlers.RotatingFileHandler
-    level: INFO
-    formatter: json
-    filename: logs/streaming_pipeline.json
-    maxBytes: 10485760  # 10MB
-    backupCount: 5
-    encoding: utf8
+    formatter: standard
+    filename: logs/pipeline.log
 
 loggers:
-  streaming_pipeline:
-    level: DEBUG
-    handlers: [console, file, error_file, json_file]
-    propagate: false
-
-  streaming_pipeline.producers:
+  stock_market_pipeline:
     level: DEBUG
     handlers: [console, file]
     propagate: false
 
-  streaming_pipeline.processors:
+  stock_market_pipeline.ingestion:
+    level: DEBUG
+    handlers: [console, file]
+    propagate: false
+
+  stock_market_pipeline.processing:
+    level: DEBUG
+    handlers: [console, file]
+    propagate: false
+
+  stock_market_pipeline.storage:
     level: DEBUG
     handlers: [console, file]
     propagate: false
 
   kafka:
-    level: INFO
-    handlers: [console, file]
+    level: WARN
+    handlers: [console]
     propagate: false
 
   pyspark:
     level: WARN
-    handlers: [console, file]
+    handlers: [console]
     propagate: false
 
   py4j:
     level: WARN
-    handlers: [console, file]
+    handlers: [console]
     propagate: false
 
 root:

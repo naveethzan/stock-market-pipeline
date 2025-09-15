@@ -89,7 +89,7 @@ setup-dev:
 	@chmod +x scripts/*.sh 2>/dev/null || true
 	@echo ""
 	echo "🚀 Building Docker containers (ULTRA-FAST with Spark caching)..."
-	./scripts/ultra-fast-build.sh
+	./scripts/infrastructure/ultra-fast-build.sh
 	@echo ""
 	@echo "✅ DEVELOPMENT SETUP COMPLETE!" 
 	@echo ""
@@ -139,7 +139,7 @@ setup-prod:
 	@chmod +x scripts/*.sh 2>/dev/null || true
 	@echo ""
 	echo "🚀 Building Docker containers (ULTRA-FAST with Spark caching)..."
-	./scripts/ultra-fast-build.sh
+	./scripts/infrastructure/ultra-fast-build.sh
 	@echo ""
 	@echo "✅ PRODUCTION SETUP COMPLETE!"
 	@echo ""
@@ -179,8 +179,8 @@ start-dev:
 	export PRODUCTION_INTERVAL_SECONDS=60 && \
 	export ENVIRONMENT=development && \
 	set +a && \
-	if [ -f scripts/start-cluster.sh ]; then \
-		./scripts/start-cluster.sh; \
+	if [ -f scripts/infrastructure/start-cluster.sh ]; then \
+		./scripts/infrastructure/start-cluster.sh; \
 	else \
 		docker-compose -f docker/compose/docker-compose.yaml up -d; \
 	fi
@@ -215,7 +215,7 @@ start-dev:
 	if [ "$$SERVICES_HEALTHY" = "true" ]; then \
 		echo ""; \
 		echo "🚀 All services healthy - deploying connectors automatically..."; \
-		./scripts/deploy-connectors.sh || echo "⚠️  Some connectors may have failed - check status"; \
+		./scripts/connectors/scripts/deploy-connectors.sh || echo "⚠️  Some connectors may have failed - check status"; \
 	else \
 		echo "⚠️  Services not fully healthy - skipping auto-deployment"; \
 		echo "Run 'make deploy-connectors' manually once services are healthy"; \
@@ -255,8 +255,8 @@ start-prod:
 	. config/.env && \
 	export ENVIRONMENT=production && \
 	set +a && \
-	if [ -f scripts/start-cluster.sh ]; then \
-		./scripts/start-cluster.sh; \
+	if [ -f scripts/infrastructure/start-cluster.sh ]; then \
+		./scripts/infrastructure/start-cluster.sh; \
 	else \
 		docker-compose -f docker/compose/docker-compose.yaml up -d; \
 	fi
@@ -413,8 +413,8 @@ deploy-connectors:
 	@echo ""
 	@echo "🚀 Deploying all connectors with enhanced Redshift support..."
 	@# Use the unified deployment script
-	@if [ -f scripts/deploy-connectors.sh ]; then \
-		./scripts/deploy-connectors.sh; \
+	@if [ -f scripts/connectors/scripts/deploy-connectors.sh ]; then \
+		./scripts/connectors/scripts/deploy-connectors.sh; \
 	else \
 		echo "❌ deploy-connectors.sh not found!"; \
 		exit 1; \

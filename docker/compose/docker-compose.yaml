@@ -211,6 +211,7 @@ services:
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
     volumes:
       - ./config/kafka-connect:/etc/kafka-connect
+      - ./scripts/connectors:/scripts/connectors
       - ./logs/kafka-connect:/var/log/kafka-connect
     restart: unless-stopped
     healthcheck:
@@ -230,7 +231,7 @@ services:
       kafka-connect:
         condition: service_healthy
     volumes:
-      - ./config/kafka-connect:/scripts
+      - ./scripts/connectors:/scripts/connectors
     command: ["/bin/bash", "/scripts/dead-letter-queue-topics.sh"]
     restart: "no"
     networks:

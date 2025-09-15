@@ -1,0 +1,209 @@
+version: 2
+
+models:
+  - name: dim_company
+    description: "Company dimension with SCD Type 2 via DBT snapshots"
+    columns:
+      - name: company_key
+        description: "Unique identifier for company dimension"
+        tests:
+          - not_null
+          - unique
+      - name: symbol
+        description: "Stock ticker symbol"
+        tests:
+          - not_null
+      - name: is_current
+        description: "Flag indicating current active record"
+        
+  - name: dim_date
+    description: "Date dimension for date-based analysis with business context"
+    columns:
+      - name: date_key
+        description: "Date key in YYYYMMDD format"
+        tests:
+          - not_null
+          - unique
+      - name: date_actual
+        description: "Actual date value"
+        tests:
+          - not_null
+      - name: year
+        description: "Year component"
+      - name: quarter
+        description: "Quarter component (1-4)"
+      - name: month
+        description: "Month component (1-12)"
+      - name: day
+        description: "Day of month component (1-31)"
+      - name: day_of_week
+        description: "Day of week (0=Sunday, 6=Saturday)"
+      - name: month_name
+        description: "Full month name"
+      - name: day_name
+        description: "Full day name"
+      - name: is_weekday
+        description: "Flag indicating if date is a weekday (Mon-Fri)"
+      - name: is_trading_day
+        description: "Flag indicating if date is a trading day (simplified as weekday)"
+      - name: is_business_day
+        description: "Flag indicating if date is a business day (Mon-Fri)"
+          
+  - name: dim_time
+    description: "Time dimension for intraday analysis with market session context"
+    columns:
+      - name: time_key
+        description: "Minute of day (0-1439)"
+        tests:
+          - not_null
+          - unique
+      - name: hour
+        description: "Hour component (0-23)"
+        tests:
+          - not_null
+      - name: minute
+        description: "Minute component (0-59)"
+        tests:
+          - not_null
+      - name: time_string
+        description: "Time in HH:MM:SS format"
+      - name: is_trading_hours
+        description: "Flag indicating regular trading hours (9:30 AM - 4:00 PM EST)"
+      - name: am_pm
+        description: "AM/PM indicator"
+      - name: market_session
+        description: "Market session indicator (pre-market, regular, after-hours, closed)"
+          
+  - name: fact_stock_prices
+    description: "Stock price facts with technical indicators"
+    columns:
+      - name: stock_price_key
+        description: "Unique identifier for stock price record (MD5 hash)"
+        tests:
+          - not_null
+          - unique
+      - name: company_key
+        description: "Foreign key to dim_company"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_company')
+              field: company_key
+      - name: date_key
+        description: "Date key in YYYYMMDD format"
+        tests:
+          - not_null
+      - name: time_key
+        description: "Minute of day (0-1439)"
+        tests:
+          - not_null
+      - name: symbol
+        description: "Stock ticker symbol"
+        tests:
+          - not_null
+      - name: timestamp
+        description: "Stock quote timestamp"
+        tests:
+          - not_null
+      - name: current_price
+        description: "Current stock price from Phase 3 producer"
+      - name: open_price
+        description: "Opening price for the period"
+      - name: high_price
+        description: "Highest price for the period"
+      - name: low_price
+        description: "Lowest price for the period"
+      - name: volume
+        description: "Trading volume"
+      - name: sma_5min
+        description: "5-minute Simple Moving Average"
+      - name: sma_20min
+        description: "20-minute Simple Moving Average"
+      - name: price_trend_5min
+        description: "5-minute price trend direction"
+      - name: price_volatility
+        description: "Price volatility measure"
+      - name: trading_session
+        description: "Trading session identifier"
+      - name: vwap
+        description: "Volume Weighted Average Price"
+      - name: price_change_abs
+        description: "Absolute price change"
+      - name: price_momentum
+        description: "Price momentum indicator"
+      - name: rsi_14
+        description: "14-period Relative Strength Index (0-100)"
+      - name: macd
+        description: "MACD indicator value"
+      - name: macd_signal
+        description: "MACD signal line value"
+      - name: macd_histogram
+        description: "MACD histogram value"
+      - name: bollinger_upper
+        description: "Bollinger Band upper boundary"
+      - name: bollinger_middle
+        description: "Bollinger Band middle line (SMA)"
+      - name: bollinger_lower
+        description: "Bollinger Band lower boundary"
+      - name: data_quality_score
+        description: "Data quality assessment score from stock prices producer"
+      - name: tech_data_quality_score
+        description: "Data quality assessment score from technical indicators producer"
+      - name: created_at
+        description: "DBT processing timestamp"
+        tests:
+          - not_null
+          
+  - name: fact_trading_volume
+    description: "Trading volume analytics facts"
+    columns:
+      - name: trading_volume_key
+        description: "Unique identifier for trading volume record (MD5 hash)"
+        tests:
+          - not_null
+          - unique
+      - name: company_key
+        description: "Foreign key to dim_company"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_company')
+              field: company_key
+      - name: date_key
+        description: "Date key in YYYYMMDD format"
+        tests:
+          - not_null
+      - name: time_key
+        description: "Minute of day (0-1439)"
+        tests:
+          - not_null
+      - name: symbol
+        description: "Stock ticker symbol"
+        tests:
+          - not_null
+      - name: timestamp
+        description: "Volume analysis timestamp"
+        tests:
+          - not_null
+      - name: volume
+        description: "Trading volume"
+        tests:
+          - not_null
+      - name: volume_ma_5min
+        description: "5-minute volume moving average"
+      - name: volume_ma_20min
+        description: "20-minute volume moving average"
+      - name: volume_trend
+        description: "Volume trend direction (up/down/stable)"
+      - name: volume_anomaly
+        description: "Volume anomaly detection flag"
+      - name: volume_ratio
+        description: "Volume ratio metric"
+      - name: volume_weighted_price
+        description: "Volume weighted price"
+      - name: volume_category
+        description: "Volume categorization (low/medium/high)"
+      - name: created_at
+        description: "DBT processing timestamp"
+        tests:
+          - not_null
