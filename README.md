@@ -16,34 +16,6 @@
 
 ---
 
-## ✨ What Makes This Special
-
-### 🏗️ **Medallion Architecture (Bronze → Silver → Gold)**
-- **Bronze Layer:** Raw data ingestion with Kafka + Avro serialization to AWS S3
-- **Silver Layer:** Real-time Spark transformations with comprehensive data quality checks
-- **Gold Layer:** Analytics-ready dimensional model in AWS Redshift
-
-### ⚡ **Real-Time Processing at Scale**
-- Apache Spark Structured Streaming with micro-batch processing (10-second intervals)
-- Advanced technical indicators: RSI (14-period), Bollinger Bands, Moving Averages
-- Statistical anomaly detection using Z-score analysis
-- Real-time data quality monitoring and validation
-
-### 🔧 **Production-Ready Features**
-- **Fault Tolerance:** Automatic recovery with checkpoint-based state management
-- **Exactly-Once Processing:** Guaranteed message delivery semantics
-- **Comprehensive Monitoring:** Health checks, Spark UI, Kafka UI dashboards
-- **Error Handling:** Dead letter queues for failed messages with retry logic
-- **Schema Evolution:** Backward-compatible Avro schema management
-
-### 📊 **End-to-End Data Engineering**
-- API-to-Warehouse pipeline with full observability
-- DBT for warehouse transformations and data modeling
-- Dimensional modeling with fact and dimension tables
-- Scalable infrastructure using Docker Compose orchestration
-
----
-
 ## 🏗️ Architecture
 
 ![Medallion Architecture Flow](docs/images/architecture-diagram.png)
@@ -55,7 +27,7 @@
 - **Message Queue:** Apache Kafka with Avro serialization via Schema Registry
 - **Storage:** AWS S3 with time-based partitioning (year/month/day/hour)
 - **Topics:** `stock-quotes-realtime`, `stock-intraday-data`
-- **Format:** Avro (schema-enforced, backward-compatible)
+- **Format:** Avro (schema-enforced, backwards-compatible)
 
 #### **🥈 Silver Layer (Stream Processing)**
 - **Processing Engine:** Apache Spark Structured Streaming (1 Master + 2 Workers)
@@ -123,18 +95,6 @@
 
 ---
 
-### Medallion Architecture Benefits
-
-✅ **Separation of Concerns** - Raw, cleaned, and business-ready data isolated by layer
-✅ **Data Quality** - Progressive data refinement and validation through pipeline stages
-✅ **Flexibility** - Multiple consumers can access data at any transformation stage
-✅ **Debugging** - Easy issue tracing through clear pipeline stages
-✅ **Compliance** - Raw data preserved in Bronze layer for audit and replay requirements
-✅ **Performance** - Optimized storage formats per layer (Avro → Parquet → Redshift)
-✅ **Scalability** - Each layer can scale independently based on workload
-
----
-
 ## 📁 Project Structure
 
 ```
@@ -175,35 +135,12 @@ stock-market-pipeline/
 
 ---
 
-## 📊 Monitoring & Observability
-
-### Health Monitoring
-
-#### **Service-Level Health Checks**
-- **Producer Health Endpoint:** `http://localhost:8081/health` - API ingestion status
-- **Processor Health Endpoint:** `http://localhost:8082/health` - Spark streaming status
-- **Kafka Connect Health:** REST API monitoring for connector status
-
-#### **Dashboard Access**
-- **Spark Master UI:** `http://localhost:8080` - Job monitoring, resource utilization, DAG visualization
-- **Spark Worker UIs:** `http://localhost:8181`, `http://localhost:8182` - Worker-level metrics
-- **Kafka UI:** `http://localhost:8090` - Topic inspection, message browsing, consumer lag
-- **Schema Registry:** `http://localhost:8085` - Schema versions and compatibility
-
-#### **Data Quality Metrics**
-- Real-time quality score tracking per micro-batch
-- Validation rule pass/fail rates
-- Anomaly detection alerts via dedicated Kafka topic
-- Null value percentage monitoring
-
----
-
 ### Fault Tolerance & Recovery
 
 #### **Checkpointing Strategy**
 - Incremental state checkpoints every micro-batch
 - Exactly-once processing guarantees via offset management
-- Automatic recovery from last successful checkpoint
+- Automatic recovery from the last successful checkpoint
 - Configurable checkpoint retention policy
 
 #### **Error Handling**
@@ -213,99 +150,5 @@ stock-market-pipeline/
   - `data-quality-alerts` - Validation failures
 - **Retry Logic:** Exponential backoff for transient failures (3 retries, 3-second backoff)
 - **Circuit Breakers:** Automatic query restart after error threshold detection
-
-#### **Operational Commands**
-```bash
-make status         # Complete system health check across all services
-make logs           # Stream real-time processing logs
-make verify         # Quick pipeline verification (topics, messages, connectors)
-make clean          # Full cleanup and reset
-```
-
----
-
-## 📚 Technical Documentation
-
-For detailed technical deep-dives and implementation details:
-
-- **[Spark Architecture Explained](docs/spark_architecture_explanation.md)** - How Structured Streaming works under the hood, micro-batching model, window functions
-- **[Visual Diagrams](docs/spark_visual_diagrams.md)** - DataFrame transformations, technical indicator calculations, error handling flows
-- **[Development Guide](WARP.md)** - Development workflow, testing patterns, code structure, environment setup
-
----
-
-## 🎯 Key Learning Outcomes
-
-This project demonstrates expertise in:
-
-### **Data Engineering & Architecture**
-✅ Real-time data pipeline design and implementation
-✅ Medallion architecture pattern (Bronze/Silver/Gold layers)
-✅ Dimensional modeling for analytics (fact/dimension tables)
-✅ Data quality engineering and validation frameworks
-✅ ETL/ELT pipeline development
-
-### **Distributed Systems & Streaming**
-✅ Apache Spark for distributed stream processing
-✅ Structured Streaming with micro-batch processing
-✅ Kafka-based event streaming architecture
-✅ Exactly-once processing semantics
-✅ Watermarking and late data handling
-
-### **Cloud & Infrastructure**
-✅ AWS cloud data engineering (S3, Redshift)
-✅ Infrastructure as Code with Docker Compose
-✅ Multi-container orchestration and networking
-✅ Scalable storage layer design (data lake + warehouse)
-
-### **Production Engineering**
-✅ Fault tolerance and automatic recovery mechanisms
-✅ Comprehensive monitoring and observability
-✅ Error handling with dead letter queues
-✅ Performance optimization (AQE, serialization, partitioning)
-✅ Operational automation with Makefile
-
-### **Data Transformation & Modeling**
-✅ DBT for warehouse transformations and testing
-✅ Advanced technical analysis (RSI, Bollinger Bands, moving averages)
-✅ Statistical anomaly detection
-✅ Schema evolution and management
-
----
-
-## 📋 System Requirements
-
-- **Docker:** 20.10+ with Docker Compose
-- **Memory:** 8GB RAM minimum (12GB recommended for smooth operation)
-- **Storage:** 10GB free disk space
-- **Network:** Stable internet connection for API ingestion
-- **AWS Account:** Active account with S3 and Redshift access
-- **API Key:** Alpha Vantage API key (free tier available)
-
----
-
-## 🔧 Configuration
-
-All system configurations are centralized in `config/.env`:
-
-- **AWS Credentials:** S3 bucket, Redshift endpoint, access keys
-- **Alpha Vantage API:** API key and rate limiting settings
-- **Kafka Configuration:** Bootstrap servers, topic settings
-- **Spark Configuration:** Memory allocation, executor settings
-- **Pipeline Tuning:** Batch intervals, watermark delays, checkpoint locations
-
----
-
-## 📝 License
-
-This project is available for educational and portfolio purposes.
-
----
-
-## 🤝 Contact
-
-For questions or collaboration opportunities, please reach out via [GitHub Issues](../../issues).
-
----
 
 **Built with:** Apache Spark | Kafka | AWS | Python | DBT | Docker
